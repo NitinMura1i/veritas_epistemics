@@ -37,13 +37,13 @@ def get_wikipedia_context(topic):
 
 def generate_pipeline(topic):
     if not topic.strip():
-        return "Please enter a topic!", "", "", ""
+        return "Please enter a topic!", "", "", "", ""
 
-    yield "Retrieving Wikipedia context...", "", "", ""
+    yield "Retrieving Wikipedia context...", "", "", "", ""
 
     wiki_context = get_wikipedia_context(topic)
 
-    yield "Generating article...", wiki_context, "", ""
+    yield "Generating article...", wiki_context, "", "", ""
 
     chat = client.chat.create(model="grok-4")
 
@@ -69,7 +69,7 @@ def generate_pipeline(topic):
     response = chat.sample()
     article = response.content.strip()
 
-    yield "Critiquing for accuracy...", wiki_context, article, ""
+    yield "Critiquing for accuracy...", wiki_context, article, "", ""
 
     critique_chat = client.chat.create(model="grok-4")
 
@@ -93,7 +93,7 @@ def generate_pipeline(topic):
     critique_response = critique_chat.sample()
     critique = critique_response.content.strip()
 
-    yield "Refining article...", wiki_context, article, critique
+    yield "Refining article...", wiki_context, article, critique, ""
 
     refine_chat = client.chat.create(model="grok-4")
 
