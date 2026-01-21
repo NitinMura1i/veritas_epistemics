@@ -2,6 +2,8 @@ import os
 from dotenv import load_dotenv
 import wikipediaapi
 import gradio as gr
+import pandas as pd
+import json
 
 from xai_sdk.chat import user, system
 from xai_sdk import Client
@@ -176,6 +178,93 @@ def run_debate_only(article, wiki_context, critique):
     return final, transcript
 
 
+def generate_synthetic_eval(refined_article):
+    if not refined_article.strip():
+        return "No refined article yet! Generate and refine first.", None, None, None
+
+    # Step 1: Generate synthetic Q&A pairs
+    synth_prompt = f"""
+From this refined article:
+{refined_article}
+
+Generate exactly 5 high-quality synthetic evaluation Q&A pairs for factual testing.
+For each:
+- "question": A clear, diverse question about the article.
+- "golden_answer": Direct, accurate answer from the article.
+- "distractors": List of 2 plausible but wrong answers (hallucinations or common misconceptions).
+- "difficulty": "easy", "medium", or "hard"
+
+Output as valid JSON list only, no extra text.
+Example format:
+[{{"question": "...", "golden_answer": "...", "distractors": ["wrong1", "wrong2"], "difficulty": "medium"}}, ...]
+"""
+
+    synth_chat = client.chat.create(model="grok-4")
+    synth_chat.append(system(
+        "You are an expert synthetic data generator for LLM evaluation. Output only valid JSON."))
+    synth_chat.append(user(synth_prompt))
+    synth_response = synth_chat.sample().content.strip()
+
+    # Parse JSON
+    try:
+        qa_pairs = json.loads(synth_response)
+    except:
+        qa_pairs = []
+
+    # Step 2: Evaluate factual accuracy
+    eval_prompt = f"""
+Evaluate the refined article for factual accuracy, bias, and hallucination risk (0-10 scale).
+Article: {refined_article}
+Provide:
+- overall_score: number 0-10
+- reasoning: brief explanation
+- bias_flags: list of any detected biases (or empty list)
+- hallucination_risk: "low", "medium", "high"
+
+Output as JSON only.
+"""
+
+    eval_chat = client.chat.create(model="grok-4")
+    eval_chat.append(
+        system("You are a strict factual evaluator. Output only valid JSON."))
+    eval_chat.append(user(eval_prompt))
+    eval_response = eval_chat.sample().content.strip()
+
+    try:
+        eval_data = json.loads(eval_response)
+    except:
+        eval_data = {"overall_score": 0, "reasoning": "Eval failed",
+                     "bias_flags": [], "hallucination_risk": "unknown"}
+
+    # Prepare table data
+    df_data = []
+    for pair in qa_pairs:
+        df_data.append({
+            "Question": pair.get("question", ""),
+            "Golden Answer": pair.get("golden_answer", ""),
+            "Distractors": ", ".join(pair.get("distractors", [])),
+            "Difficulty": pair.get("difficulty", "")
+        })
+
+    df = pd.DataFrame(df_data)
+
+    # Score text
+    score_text = f"**Factual Accuracy Score: {eval_data.get('overall_score', 'N/A')}/10**\n\n" \
+        f"**Reasoning:** {eval_data.get('reasoning', 'N/A')}\n\n" \
+        f"**Bias Flags:** {', '.join(eval_data.get('bias_flags', [])) or 'None'}\n" \
+        f"**Hallucination Risk:** {eval_data.get('hallucination_risk', 'N/A')}"
+
+    # JSON for download
+    json_data = {
+        "qa_pairs": qa_pairs,
+        "evaluation": eval_data,
+        "article": refined_article
+    }
+    json_str = json.dumps(json_data, indent=2)
+
+    return score_text, df, json_str
+
+
 dark_theme = gr.themes.Default(
     primary_hue="indigo",
     secondary_hue="slate",
@@ -211,30 +300,64 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         width=300,
         elem_id="veritas-title",
         show_download_button=False,
-        show_fullscreen_button=False,  # ← add this
+        show_fullscreen_button=False,
     )
 
     gr.HTML("""
     <style>
-        /* Center and tighten title image */
         #veritas-title {
-            text-align: center !important;
+            text-align: center;
             margin: 15px auto 5px auto !important;
-            padding: 0 !important;
-            overflow: hidden !important;
         }
         #veritas-title img {
-            display: block !important;
-            margin: 0 auto !important;
-            padding: 0 !important;
-            border: none !important;
-            box-shadow: none !important;
-            width: 100% !important;
-            height: 100% !important;
-            object-fit: contain !important;
+            display: block;
+            margin: 0 auto;
         }
-
-        /* Nuke Gradio image toolbar / controls completely */
+        .chat-input-container {
+            position: relative;
+            max-width: 700px !important;
+            margin: 10px auto 20px auto !important;
+        }
+        .chat-input-container .gr-textbox {
+            border-radius: 12px !important;
+            padding: 12px 70px 12px 16px !important;
+            background-color: #111111 !important;
+            color: #e5e7eb !important;
+            border: 1px solid #444444 !important;
+        }
+        .chat-input-container .gr-textbox textarea {
+            resize: none !important;
+            font-size: 1.1rem !important;
+        }
+        .send-btn {
+            position: absolute !important;
+            bottom: 8px !important;
+            right: 8px !important;
+            width: 40px !important;
+            height: 40px !important;
+            border-radius: 8px !important;
+            background-color: #6366f1 !important;
+            color: white !important;
+            border: none !important;
+            cursor: pointer !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-size: 1.6rem !important;
+            z-index: 10 !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
+        }
+        .send-btn:hover {
+            background-color: #4f46e5 !important;
+        }
+        #topic-input-box::placeholder {
+            font-size: 0.7rem !important;
+            color: #aaaaaa !important;
+            opacity: 0.8 !important;
+        }
+        #topic-input-box {
+            font-size: 1rem !important;
+        }
         .gr-image .gr-image-toolbar,
         .gr-image .toolbar,
         .gr-image-toolbar,
@@ -253,102 +376,17 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             min-height: 0 !important;
             min-width: 0 !important;
             border: none !important;
-        }
-
-        /* Force parent containers to collapse */
-        .gr-image-container,
-        .gr-image,
-        .gr-box:has(.gr-image) {
-            padding: 0 !important;
-            margin: 0 !important;
-            border: none !important;
-            overflow: hidden !important;
             background: transparent !important;
         }
-
-        /* Your other styles (chat input, send btn, etc.) */
-        .chat-input-container {
-            position: relative;
-            max-width: 700px !important;
-            margin: 10px auto 20px auto !important;
-        }
-        .chat-input-container .gr-textbox {
-            border-radius: 12px !important;
-            padding: 12px 70px 12px 16px !important;  /* increased right padding from 60px → 70px */
-            background-color: #111111 !important;
-            color: #e5e7eb !important;
-            border: 1px solid #444444 !important;
-        }
-        .chat-input-container .gr-textbox textarea {
-            resize: none !important;
-            font-size: 1rem !important;
-            padding-right: 60px !important;
-        }
-        .send-btn {
-            position: absolute !important;
-            bottom: 2px !important;
-            right: 2px !important;
-            width: 37px !important;
-            height: 37px !important;
-            border-radius: 6px !important;
-            background-color: #5170ff !important;
-            color: white !important;
+        #veritas-title .gr-image,
+        #veritas-title img {
+            margin: 0 !important;
+            padding: 0 !important;
             border: none !important;
-            cursor: pointer !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            font-size: 1.5rem !important;
-            z-index: 20 !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
+            box-shadow: none !important;
         }
-        .send-btn:hover {
-            background-color: #4f46e5 !important;
-        }
-        #topic-input-box::placeholder {
-            font-size: 0.7rem !important;
-            color: #aaaaaa !important;
-            opacity: 0.8 !important;
-        }
-        #topic-input-box {
-            font-size: 1rem !important;
-        }
-            .icon-button-wrapper.top-panel.hide-top-corner,
-    .icon-button-wrapper,
-    .top-panel,
-    .hide-top-corner,
-    .gr-image .icon-button-wrapper,
-    .gr-image .top-panel {
-        display: none !important;
-        visibility: hidden !important;
-        height: 0 !important;
-        width: 0 !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        overflow: hidden !important;
-        min-height: 0 !important;
-     min-width: 0 !important;
-     border: none !important;
-     background: transparent !important;
-    }
-
-    /* Force the image container to have no reserved space */
-    .gr-image-container:has(.icon-button-wrapper),
-    .gr-image .gr-image-header,
-    .gr-image-header {
-        height: 0 !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        overflow: hidden !important;
-    }
-
-    /* Extra safety: clip any overflow */
-    #veritas-title {
-        overflow: hidden !important;
-        clip-path: inset(0 0 0 0) !important;
-    }
     </style>
-    """)
+""")
 
     with gr.Column(scale=1, min_width=500, elem_classes=["chat-input-container"]):
         topic_input = gr.Textbox(
@@ -410,10 +448,15 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 with gr.Column(scale=1):
                     gr.Markdown("**Refined**")
                     refined_output_basic = gr.Textbox(
-                        lines=20,
-                        max_lines=60,
+                        value="This is where your truth-seeking article will be displayed.\n\n" +
+                              "Enter a topic above and click the arrow to generate the initial version.\n" +
+                              "Then use Critique, Debate, or Synthetic Eval to iteratively sculpt it closer to maximum truth.",
+                        lines=25,
+                        max_lines=80,
                         interactive=False,
-                        show_copy_button=True
+                        show_copy_button=True,
+                        label="Current Sculpted Article",
+                        elem_classes=["center-article"]
                     )
 
         with gr.TabItem("Advanced Debate"):
@@ -445,13 +488,23 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                         show_copy_button=True
                     )
 
+        with gr.TabItem("Synthetic Data & Eval"):
+            eval_btn = gr.Button(
+                "Generate Synthetic Eval Data", variant="secondary")
+            eval_status = gr.Markdown(
+                "Click to generate evaluation data from refined article.")
+            eval_score = gr.Markdown()
+            eval_table = gr.Dataframe(interactive=False)
+            eval_download = gr.File(
+                label="Download JSON", file_types=[".json"])
+
     # Button connections
-    # generate_btn.click(
-    #     fn=generate_pipeline,
-    #     inputs=topic_input,
-    #     outputs=[status, wiki_output, article_output,
-    #              critique_output, refined_output_basic]
-    # )
+    send_arrow.click(
+        fn=generate_pipeline,
+        inputs=topic_input,
+        outputs=[status, wiki_output, article_output,
+                 critique_output, refined_output_basic]
+    )
 
     debate_btn.click(
         fn=run_debate_only,
@@ -459,11 +512,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         outputs=[debate_transcript, final_refined]
     )
 
-    send_arrow.click(
-        fn=generate_pipeline,
-        inputs=topic_input,
-        outputs=[status, wiki_output, article_output,
-                 critique_output, refined_output_basic]
+    eval_btn.click(
+        fn=generate_synthetic_eval,
+        inputs=refined_output_basic,
+        outputs=[eval_score, eval_table, eval_download]
     )
 
 if __name__ == "__main__":
