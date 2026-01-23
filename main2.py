@@ -20,6 +20,7 @@ article_history = []
 current_sources = []
 source_visible = False  # Track if source panel is visible
 
+
 def toggle_source_view():
     """Toggle Wikipedia source panel content."""
     global source_visible, current_sources
@@ -34,6 +35,7 @@ def toggle_source_view():
     else:
         # Return to default placeholder text
         return "# 📚 Source Material\n\nClick **'View Source'** to see the Wikipedia article or other source material used to generate the article.\n\nThis panel will also display retrieved context and grounding information during article generation."
+
 
 def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
     """Fetch Wikipedia article content for a given topic."""
@@ -51,7 +53,8 @@ def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
             "srsearch": topic,
             "srlimit": 1
         }
-        search_response = requests.get(search_url, params=search_params, headers=headers, timeout=10)
+        search_response = requests.get(
+            search_url, params=search_params, headers=headers, timeout=10)
         search_data = search_response.json()
 
         if not search_data.get("query", {}).get("search"):
@@ -68,7 +71,8 @@ def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
             "prop": "extracts",
             "explaintext": True
         }
-        content_response = requests.get(search_url, params=content_params, headers=headers, timeout=10)
+        content_response = requests.get(
+            search_url, params=content_params, headers=headers, timeout=10)
         content_data = content_response.json()
 
         pages = content_data.get("query", {}).get("pages", {})
@@ -84,6 +88,7 @@ def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
         print(f"Error fetching Wikipedia: {e}")
         return None
 
+
 def generate_initial_article(topic: str):
     """Generate initial article with Wikipedia grounding."""
     global article_history, current_sources
@@ -98,7 +103,8 @@ def generate_initial_article(topic: str):
         # Don't auto-show Wikipedia - keeps center article centered
         yield f"📚 Found Wikipedia article: '{wiki_data['title']}'\n\n✍️ Generating epistemically grounded article...", "", ""
 
-        source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"  # Use first 3000 chars
+        # Use first 3000 chars
+        source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"
         source_note = f"Grounded in Wikipedia article: [{wiki_data['title']}]({wiki_data['url']})"
         current_sources = [{
             "name": wiki_data['title'],
@@ -157,6 +163,7 @@ Format the article in clean markdown."""
         error_msg = f"❌ Error generating article: {str(e)}\n\nPlease try again."
         yield error_msg, "", ""
 
+
 # Dark theme
 dark_theme = gr.themes.Default(
     primary_hue="indigo",
@@ -212,8 +219,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         }
         .chat-input-container {
             position: relative;
-            max-width: 800px !important;
-            margin: 0 auto 20px auto !important;
         }
         .chat-input-container .gr-textbox {
             border-radius: 12px !important;
@@ -252,8 +257,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             position: absolute !important;
             bottom: 3px !important;
             right: 3px !important;
-            width: 36px !important;
-            height: 36px !important;
+            width: 32px !important;
+            height: 32px !important;
             border-radius: 8px !important;
             background-color: #6366f1 !important;
             color: white !important;
@@ -269,20 +274,97 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         .send-btn:hover {
             background-color: #4f46e5 !important;
         }
-        /* Action buttons row */
-        .action-buttons-row {
+        /* Top control row - dropdown and input */
+        .top-control-row {
             max-width: 1200px !important;
-            margin: 30px auto 20px auto !important;
-            gap: 12px !important;
-            display: flex !important;
-            justify-content: center !important;
-            flex-wrap: wrap !important;
+            margin: 20px auto !important;
+            gap: 15px !important;
+            align-items: center !important;
         }
 
-        .action-buttons-row button {
-            flex: 1 1 180px !important;
-            max-width: 200px !important;
-            min-width: 160px !important;
+        /* Dropdown styling - comprehensive targeting */
+        label[id*="component"] select,
+        select[class*="dropdown"],
+        .gr-dropdown,
+        .gr-box select {
+            background-color: #111111 !important;
+            color: #e5e7eb !important;
+            border: 1px solid #444444 !important;
+            border-radius: 8px !important;
+            font-family: monospace !important;
+            font-size: 1rem !important;
+        }
+
+        /* Dropdown input field */
+        .gr-dropdown input,
+        input[role="combobox"] {
+            background-color: #111111 !important;
+            color: #e5e7eb !important;
+            border: 1px solid #444444 !important;
+            font-family: monospace !important;
+            font-size: 1rem !important;
+        }
+
+        /* Dropdown container */
+        .gr-dropdown,
+        div[class*="dropdown"] {
+            background-color: #111111 !important;
+        }
+
+        /* Dropdown options list */
+        ul[role="listbox"],
+        div[role="listbox"],
+        .options,
+        [class*="options"] {
+            background-color: #1a1a1a !important;
+            border: 1px solid #444444 !important;
+            border-radius: 8px !important;
+        }
+
+        /* Individual dropdown options */
+        li[role="option"],
+        div[role="option"],
+        .option,
+        [class*="option"]:not([class*="options"]) {
+            background-color: #1a1a1a !important;
+            color: #e5e7eb !important;
+            padding: 8px 12px !important;
+            font-family: monospace !important;
+            font-size: 0.9rem !important;
+        }
+
+        /* Dropdown option hover state */
+        li[role="option"]:hover,
+        div[role="option"]:hover,
+        .option:hover,
+        li[aria-selected="true"],
+        div[aria-selected="true"] {
+            background-color: #6366f1 !important;
+            color: white !important;
+        }
+
+        /* Epistemic dropdown styling - MUST come LAST to override all above */
+        .epistemic-dropdown-borderless input[role="combobox"],
+        .epistemic-dropdown-borderless input,
+        .epistemic-dropdown-borderless span,
+        .epistemic-dropdown-borderless div {
+            color: #e5e7eb !important;
+            font-family: monospace !important;
+            font-size: 0.9rem !important;
+        }
+
+        .epistemic-dropdown-borderless input[role="combobox"] {
+            padding: 14px 18px !important;
+            background-color: #111111 !important;
+            border: 1px solid #444444 !important;
+            border-radius: 12px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+            line-height: 1.5 !important;
+        }
+
+        .epistemic-dropdown-borderless input[role="combobox"]::placeholder {
+            color: #aaaaaa !important;
+            opacity: 0.8 !important;
         }
 
         /* Utility buttons row */
@@ -312,10 +394,58 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         /* Article row - contains side panels + central article */
         .article-row {
             max-width: 1600px !important;
-            margin: 20px auto !important;
+            margin: -20px auto 20px auto !important;
             gap: 20px !important;
             padding: 0 20px !important;
             align-items: flex-start !important;
+            border: none !important;
+            background: transparent !important;
+        }
+
+        /* Force all columns in article row to start at same height */
+        .article-row > div[class*="column"] {
+            align-self: flex-start !important;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
+
+        .article-row > div,
+        .article-row div[class*="block"],
+        .article-row div[class*="container"],
+        .article-row div[class*="wrap"],
+        .article-row > * > div,
+        .article-row label {
+            border: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
+        }
+
+        /* Ensure all textboxes start at the same vertical position */
+        .article-row textarea {
+            margin-top: 0 !important;
+            vertical-align: top !important;
+        }
+
+        .article-row label {
+            padding-top: 0 !important;
+            margin-top: 0 !important;
+        }
+
+        /* Nuclear option: force ALL elements containing our panels to align at top */
+        .article-row *:has(.side-panel),
+        .article-row *:has(.left-panel),
+        .article-row *:has(.right-panel),
+        .article-row *:has(.central-article) {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+            align-self: flex-start !important;
+        }
+
+        /* Force the direct containers of each panel */
+        .side-panel,
+        .left-panel,
+        .right-panel {
+            margin-top: 0 !important;
         }
 
         /* Side panels (left and right commentary) */
@@ -324,9 +454,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             border-radius: 12px !important;
             background-color: #1a1a1a !important;
             color: #e5e7eb !important;
-            border: 1px solid #444444 !important;
+            border: 4px solid #444444 !important;
             padding: 16px !important;
-            font-family: 'Inter', sans-serif !important;
+            font-family: monospace !important;
             font-size: 0.95rem !important;
             line-height: 1.6 !important;
             min-height: 400px !important;
@@ -334,14 +464,17 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             overflow-y: auto !important;
             box-shadow: 0 2px 12px rgba(99, 102, 241, 0.1) !important;
             transition: all 0.3s ease !important;
+            margin-top: 0 !important;
         }
 
         .left-panel {
-            border-left: 3px solid #10b981 !important;
+            border-left: 4px solid #10b981 !important;
+            margin-top: 1px !important;
         }
 
         .right-panel {
-            border-right: 3px solid #f59e0b !important;
+            border-right: 4px solid #f59e0b !important;
+            margin-top: 1px !important;
         }
 
         /* Central article styling */
@@ -349,9 +482,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             border-radius: 12px !important;
             background-color: #1a1a1a !important;
             color: #e5e7eb !important;
-            border: 1px solid #6366f1 !important;
-            border-width: 2px !important;
-            padding: 20px !important;
+            border: 4px solid #6366f1 !important;
+            padding: 16px !important;
             font-family: monospace !important;
             font-size: 1.05rem !important;
             line-height: 1.6 !important;
@@ -359,6 +491,21 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             max-height: 600px !important;
             overflow-y: auto !important;
             box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3) !important;
+            margin-top: 0 !important;
+        }
+
+        /* Force central article label to have no top offset */
+        label.central-article {
+            margin-top: 0 !important;
+        }
+
+        /* Override to force textarea borders */
+        .side-panel textarea,
+        .left-panel textarea,
+        .right-panel textarea,
+        .central-article textarea {
+            border: 1px solid #ffffff !important;
+            border-radius: 12px !important;
         }
         .central-article::placeholder {
             color: #777777 !important;
@@ -396,36 +543,44 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     </style>
     """)
 
-    # Chat-style input with send arrow in corner
-    with gr.Column(elem_classes=["chat-input-container"]):
-        topic_input = gr.Textbox(
-            placeholder="Enter a topic of your choice. e.g. Machine Learning, Astrology, Global Warming",
-            lines=1,
-            container=False,
-            elem_id="topic-input-box"
+    # Top control row: dropdown and input box
+    with gr.Row(elem_classes=["top-control-row"]):
+        # Epistemic tools dropdown
+        epistemic_dropdown = gr.Dropdown(
+            choices=[
+                "Epistemic Tools",
+                "Multi-Agent Debate",
+                "Self-Critique",
+                "Synthetic Data",
+                "Epistemic Score",
+                "Update Simulation",
+                "User Feedback"
+            ],
+            show_label=False,
+            value="Epistemic Tools",
+            interactive=True,
+            scale=0,
+            min_width=200,
+            elem_classes=["epistemic-dropdown-borderless"],
+            container=False
         )
 
-        send_arrow = gr.Button(
-            value="➤",
-            variant="primary",
-            elem_id="send-arrow-btn",
-            elem_classes=["send-btn"],
-            size="sm"
-        )
+        # Chat-style input with send arrow
+        with gr.Column(elem_classes=["chat-input-container"], scale=2):
+            topic_input = gr.Textbox(
+                placeholder="Enter a topic of your choice. e.g. Machine Learning, Astrology, Global Warming",
+                lines=1,
+                container=False,
+                elem_id="topic-input-box"
+            )
 
-    # Action buttons row (all at top)
-    with gr.Row(elem_classes=["action-buttons-row"]):
-        multi_agent_btn = gr.Button("🔄 Multi-Agent Debate", size="lg", variant="secondary")
-        critique_btn = gr.Button("🔍 Self-Critique", size="lg", variant="secondary")
-        synthetic_btn = gr.Button("🧪 Synthetic Data", size="lg", variant="secondary")
-        scorecard_btn = gr.Button("📊 Epistemic Score", size="lg", variant="secondary")
-        update_btn = gr.Button("🔄 Update Simulation", size="lg", variant="secondary")
-        feedback_btn = gr.Button("💬 User Feedback", size="lg", variant="secondary")
-
-    # Utility buttons row (centered)
-    with gr.Row(elem_classes=["utility-buttons-row"]):
-        view_source_btn = gr.Button("📚 View Source", size="sm", elem_classes=["utility-btn"])
-        compare_btn = gr.Button("↕️ Compare Versions", size="sm", elem_classes=["utility-btn"])
+            send_arrow = gr.Button(
+                value="➤",
+                variant="primary",
+                elem_id="send-arrow-btn",
+                elem_classes=["send-btn"],
+                size="sm"
+            )
 
     # The article panels row - now full width!
     # All 3 panels always visible to keep center article perfectly centered
@@ -435,6 +590,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             value="# 📚 Source Material\n\nClick **'View Source'** to see the Wikipedia article or other source material used to generate the article.\n\nThis panel will also display retrieved context and grounding information during article generation.",
             lines=20,
             interactive=False,
+            show_copy_button=False,
             show_label=False,
             container=True,
             elem_classes=["side-panel", "left-panel"],
@@ -446,9 +602,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             value="This is where your article will appear. Iterate it in order to get as close to the truth as you can!",
             lines=20,
             interactive=False,
-            show_copy_button=True,
+            show_copy_button=False,
             container=True,
-            elem_classes=["central-article"],
+            elem_classes=["side-panel", "central-article"],
             show_label=False
         )
 
@@ -457,6 +613,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             value="# 🔄 Epistemic Processing\n\nThis panel will display:\n\n- **Multi-agent debates** between advocates and skeptics\n- **Self-critique** reasoning and improvements\n- **Epistemic scoring** and quality metrics\n- **Real-time updates** and simulations\n\nUse the action buttons above to activate different epistemic tools.",
             lines=20,
             interactive=False,
+            show_copy_button=False,
             show_label=False,
             container=True,
             elem_classes=["side-panel", "right-panel"],
@@ -477,12 +634,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         outputs=[article_display, left_panel, right_panel]
     )
 
-    # Wire up view source button
-    view_source_btn.click(
-        fn=toggle_source_view,
-        inputs=[],
-        outputs=[left_panel]
-    )
 
 # Launch without footer
 demo.launch(show_api=False)
