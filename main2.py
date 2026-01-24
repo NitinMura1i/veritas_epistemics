@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import gradio as gr
 import requests
 from typing import Dict, Optional
+from autocorrect import Speller
 
 from xai_sdk import Client
 from xai_sdk.chat import user, system
@@ -40,6 +41,10 @@ def toggle_source_view():
 def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
     """Fetch Wikipedia article content for a given topic."""
     try:
+        # Spell-check the topic before searching
+        spell = Speller(lang='en')
+        corrected_topic = spell(topic)
+
         # Wikipedia API search endpoint with required headers
         search_url = "https://en.wikipedia.org/w/api.php"
         headers = {
@@ -50,7 +55,7 @@ def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
             "action": "query",
             "format": "json",
             "list": "search",
-            "srsearch": topic,
+            "srsearch": corrected_topic,
             "srlimit": 1
         }
         search_response = requests.get(
@@ -89,39 +94,193 @@ def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
         return None
 
 
+def fetch_arxiv(topic: str) -> Optional[Dict[str, str]]:
+    """Fetch arXiv paper for a given topic."""
+    try:
+        import xml.etree.ElementTree as ET
+
+        # arXiv API endpoint
+        search_url = "http://export.arxiv.org/api/query"
+
+        params = {
+            "search_query": f"all:{topic}",
+            "start": 0,
+            "max_results": 1,
+            "sortBy": "relevance",
+            "sortOrder": "descending"
+        }
+
+        response = requests.get(search_url, params=params, timeout=10)
+
+        if response.status_code != 200:
+            return None
+
+        # Parse XML response
+        root = ET.fromstring(response.content)
+
+        # Define namespace
+        ns = {'atom': 'http://www.w3.org/2005/Atom'}
+
+        # Find first entry
+        entry = root.find('atom:entry', ns)
+        if entry is None:
+            return None
+
+        # Extract data
+        title = entry.find('atom:title', ns)
+        title = title.text.strip().replace('\n', ' ') if title is not None else ""
+
+        summary = entry.find('atom:summary', ns)
+        summary = summary.text.strip().replace('\n', ' ') if summary is not None else "No abstract available"
+
+        # Get authors
+        authors = []
+        for author in entry.findall('atom:author', ns)[:3]:
+            name = author.find('atom:name', ns)
+            if name is not None:
+                authors.append(name.text)
+        authors_str = ", ".join(authors) if authors else "Unknown"
+        if len(entry.findall('atom:author', ns)) > 3:
+            authors_str += " et al."
+
+        # Get URL
+        link = entry.find('atom:id', ns)
+        paper_url = link.text if link is not None else ""
+
+        return {
+            "title": title,
+            "authors": authors_str,
+            "content": summary,
+            "url": paper_url
+        }
+    except Exception as e:
+        print(f"Error fetching arXiv: {e}")
+        return None
+
+
 def generate_initial_article(topic: str):
-    """Generate initial article with Wikipedia grounding."""
+    """Generate initial article with Wikipedia and arXiv grounding."""
     global article_history, current_sources
 
-    # Progressive update 1: Fetching Wikipedia - keep center centered!
-    yield "🔍 Searching Wikipedia for relevant content...", "", ""
+    # Status in left panel
+    status_log = "🔍 PROCESS LOG\n"
+    status_log += "=" * 44 + "\n\n"
+    status_log += "⏳ Searching Wikipedia for relevant content...\n\n"
+    yield "", status_log, ""  # (center, left, right)
 
     # Fetch Wikipedia
     wiki_data = fetch_wikipedia(topic)
 
     if wiki_data:
-        # Don't auto-show Wikipedia - keeps center article centered
-        yield f"📚 Found Wikipedia article: '{wiki_data['title']}'\n\n✍️ Generating epistemically grounded article...", "", ""
-
-        # Use first 3000 chars
-        source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"
-        source_note = f"Grounded in Wikipedia article: [{wiki_data['title']}]({wiki_data['url']})"
-        current_sources = [{
-            "name": wiki_data['title'],
-            "type": "Wikipedia",
-            "url": wiki_data['url'],
-            "content": wiki_data['content']
-        }]
+        status_log += f"✅ Found Wikipedia article: '{wiki_data['title']}'\n\n"
     else:
-        yield f"⚠️ No Wikipedia article found for '{topic}'\n\n✍️ Generating article from general knowledge (ungrounded)...", "", ""
+        status_log += f"⚠️ No Wikipedia article found for '{topic}'\n\n"
+
+    # Search arXiv
+    status_log += "⏳ Searching arXiv for relevant papers...\n\n"
+    yield "", status_log, ""  # (center, left, right)
+
+    paper_data = fetch_arxiv(topic)
+
+    if paper_data:
+        status_log += f"✅ Found paper: '{paper_data['title'][:60]}...'\n\n"
+    else:
+        status_log += f"⚠️ No papers found for '{topic}'\n\n"
+
+    # Build source display for right panel
+    sources_display = ""
+    source_context = ""
+    source_notes = []
+    current_sources = []
+
+    if wiki_data and paper_data:
+        # Both sources found
+        sources_display = "📚 WIKIPEDIA & ARXIV ARTICLES\n"
+        sources_display += "=" * 44 + "\n\n"
+
+        sources_display += "WIKIPEDIA:\n"
+        sources_display += "-" * 44 + "\n\n"
+        sources_display += f"**{wiki_data['title']}**\n\n"
+        sources_display += f"Source: {wiki_data['url']}\n\n"
+        sources_display += f"{wiki_data['content'][:2500]}\n\n\n"
+
+        sources_display += "ARXIV:\n"
+        sources_display += "-" * 44 + "\n\n"
+        sources_display += f"**{paper_data['title']}**\n\n"
+        sources_display += f"Authors: {paper_data['authors']}\n\n"
+        sources_display += f"Source: {paper_data['url']}\n\n"
+        sources_display += f"{paper_data['content'][:2500]}"
+
+        source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:2000]}\n\n---\n\narXiv Paper: {paper_data['title']}\nAuthors: {paper_data['authors']}\n\n{paper_data['content'][:2000]}"
+        source_notes.append(f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
+        source_notes.append(f"[arXiv: {paper_data['title'][:50]}...]({paper_data['url']})")
+
+        current_sources = [
+            {"name": wiki_data['title'], "type": "Wikipedia", "url": wiki_data['url'], "content": wiki_data['content']},
+            {"name": paper_data['title'], "type": "arXiv", "url": paper_data['url'], "content": paper_data['content'], "authors": paper_data['authors']}
+        ]
+
+    elif wiki_data:
+        # Only Wikipedia found
+        sources_display = "📚 WIKIPEDIA ARTICLE\n"
+        sources_display += "=" * 44 + "\n\n"
+        sources_display += f"**{wiki_data['title']}**\n\n"
+        sources_display += f"Source: {wiki_data['url']}\n\n"
+        sources_display += "---\n\n"
+        sources_display += f"{wiki_data['content'][:2500]}"
+
+        source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"
+        source_notes.append(f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
+        current_sources = [{"name": wiki_data['title'], "type": "Wikipedia", "url": wiki_data['url'], "content": wiki_data['content']}]
+
+    elif paper_data:
+        # Only Semantic Scholar found
+        sources_display = "📚 ARXIV ARTICLE\n"
+        sources_display += "=" * 44 + "\n\n"
+        sources_display += f"**{paper_data['title']}**\n\n"
+        sources_display += f"Authors: {paper_data['authors']}\n\n"
+        sources_display += f"Source: {paper_data['url']}\n\n"
+        sources_display += "---\n\n"
+        sources_display += f"{paper_data['content'][:2500]}"
+
+        source_context = f"arXiv Paper: {paper_data['title']}\nAuthors: {paper_data['authors']}\n\n{paper_data['content'][:3000]}"
+        source_notes.append(f"[arXiv: {paper_data['title'][:50]}...]({paper_data['url']})")
+        current_sources = [{"name": paper_data['title'], "type": "arXiv", "url": paper_data['url'], "content": paper_data['content'], "authors": paper_data['authors']}]
+
+    else:
+        # No sources found
         source_context = f"No specific source found. Generating article about: {topic}"
-        source_note = "⚠️ No Wikipedia source found - generated from general knowledge"
         current_sources = []
 
+    # Show sources in right panel - keep placeholder during generation
+    loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + "\n\n⏳ Loading sources...\n\nSources will appear here when article generation is complete."
+
+    if current_sources:
+        status_log += "⏳ Generating epistemically grounded article...\n\n"
+    else:
+        status_log += "⏳ Generating article from general knowledge (ungrounded)...\n\n"
+    yield "", status_log, loading_message  # (center, left, right)
+
+    # Build source note for article
+    if source_notes:
+        source_note = f"Grounded in: {' + '.join(source_notes)}"
+    else:
+        source_note = "⚠️ No sources found - generated from general knowledge"
+
     # Generate article with xAI
+    source_instruction = ""
+    if wiki_data and paper_data:
+        source_instruction = f"Use the Wikipedia article to define the scope and structure of your article about '{topic}'. Use the arXiv paper ONLY to add academic depth where directly relevant, not to shift focus to niche sub-topics or specific research questions in the paper."
+    elif wiki_data:
+        source_instruction = "Use the following Wikipedia content as your primary source:"
+    elif paper_data:
+        source_instruction = f"Use the following arXiv paper as your primary source. Keep the article broadly focused on '{topic}' as a general topic rather than narrowly focused on the specific research question in the paper."
+    else:
+        source_instruction = "Generate based on your knowledge:"
+
     prompt = f"""You are an expert knowledge synthesizer. Write a comprehensive, factual article about "{topic}".
 
-{"Use the following Wikipedia content as your primary source:" if wiki_data else "Generate based on your knowledge:"}
+{source_instruction}
 
 {source_context}
 
@@ -150,18 +309,62 @@ Format the article in clean markdown."""
         response = chat.sample()
         article_content = response.content.strip()
 
-        # Add source note at the top
-        final_article = f"__{source_note}__\n\n---\n\n{article_content}"
+        # Add header and source note at the top
+        final_article = f"📝 YOUR ARTICLE\n"
+        final_article += "=" * 44 + "\n\n"
+        final_article += f"__{source_note}__\n\n---\n\n{article_content}"
 
         # Store in history
         article_history.append(final_article)
 
-        # Keep side panels empty - center stays centered!
-        yield final_article, "", ""
+        # Update status log to show completion
+        status_log += "✅ Article generation complete!\n\n"
+
+        # Rebuild sources display for final yield
+        final_sources_display = ""
+        if len(current_sources) == 2:
+            # Both Wikipedia and Semantic Scholar
+            final_sources_display = "📚 WIKIPEDIA & ARXIV ARTICLES\n"
+            final_sources_display += "=" * 44 + "\n\n"
+
+            final_sources_display += "WIKIPEDIA:\n"
+            final_sources_display += "-" * 44 + "\n\n"
+            final_sources_display += f"**{current_sources[0]['name']}**\n\n"
+            final_sources_display += f"Source: {current_sources[0]['url']}\n\n"
+            final_sources_display += f"{current_sources[0]['content'][:2500]}\n\n\n"
+
+            final_sources_display += "ARXIV:\n"
+            final_sources_display += "-" * 44 + "\n\n"
+            final_sources_display += f"**{current_sources[1]['name']}**\n\n"
+            final_sources_display += f"Authors: {current_sources[1]['authors']}\n\n"
+            final_sources_display += f"Source: {current_sources[1]['url']}\n\n"
+            final_sources_display += f"{current_sources[1]['content'][:2500]}"
+
+        elif len(current_sources) == 1:
+            # Single source
+            source = current_sources[0]
+            if source['type'] == 'Wikipedia':
+                final_sources_display = "📚 WIKIPEDIA ARTICLE\n"
+                final_sources_display += "=" * 44 + "\n\n"
+                final_sources_display += f"**{source['name']}**\n\n"
+                final_sources_display += f"Source: {source['url']}\n\n"
+                final_sources_display += "---\n\n"
+                final_sources_display += f"{source['content'][:2500]}"
+            else:  # Semantic Scholar
+                final_sources_display = "📚 ARXIV ARTICLE\n"
+                final_sources_display += "=" * 44 + "\n\n"
+                final_sources_display += f"**{source['name']}**\n\n"
+                final_sources_display += f"Authors: {source['authors']}\n\n"
+                final_sources_display += f"Source: {source['url']}\n\n"
+                final_sources_display += "---\n\n"
+                final_sources_display += f"{source['content'][:2500]}"
+
+        # Yield: center (article), left (status), right (sources)
+        yield final_article, status_log, final_sources_display
 
     except Exception as e:
-        error_msg = f"❌ Error generating article: {str(e)}\n\nPlease try again."
-        yield error_msg, "", ""
+        status_log += f"❌ Error generating article: {str(e)}\n\nPlease try again.\n"
+        yield "", status_log, ""
 
 
 # Dark theme
@@ -459,8 +662,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             font-family: monospace !important;
             font-size: 0.95rem !important;
             line-height: 1.6 !important;
-            min-height: 400px !important;
-            max-height: 600px !important;
+            min-height: 2000px !important;
+            max-height: 2000px !important;
             overflow-y: auto !important;
             box-shadow: 0 2px 12px rgba(99, 102, 241, 0.1) !important;
             transition: all 0.3s ease !important;
@@ -487,8 +690,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             font-family: monospace !important;
             font-size: 1.05rem !important;
             line-height: 1.6 !important;
-            min-height: 400px !important;
-            max-height: 600px !important;
+            min-height: 2000px !important;
+            max-height: 2000px !important;
             overflow-y: auto !important;
             box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3) !important;
             margin-top: 0 !important;
@@ -513,6 +716,21 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             font-style: italic !important;
             text-align: center !important;
         }
+    </style>
+    <script>
+        // Scroll textareas to top after content updates
+        function scrollToTop() {
+            const textareas = document.querySelectorAll('.central-article textarea, .side-panel textarea');
+            textareas.forEach(textarea => {
+                textarea.scrollTop = 0;
+            });
+        }
+
+        // Run on page load and periodically check for updates
+        window.addEventListener('load', scrollToTop);
+        setInterval(scrollToTop, 500);
+    </script>
+    <style>
         /* Toolbar nuke (your existing rule kept) */
         .icon-button-wrapper.top-panel.hide-top-corner,
         .icon-button-wrapper.top-panel,
@@ -585,10 +803,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     # The article panels row - now full width!
     # All 3 panels always visible to keep center article perfectly centered
     with gr.Row(elem_classes=["article-row"]):
-        # Left panel - Source material and context
+        # Left panel - Process log and status
         left_panel = gr.Textbox(
-            value="# 📚 Source Material\n\nClick **'View Source'** to see the Wikipedia article or other source material used to generate the article.\n\nThis panel will also display retrieved context and grounding information during article generation.",
-            lines=20,
+            value="🔍 PROCESS LOG\n" + "=" * 44 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Wikipedia search progress\n- arXiv paper search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the arrow to begin!",
+            lines=60,
             interactive=False,
             show_copy_button=False,
             show_label=False,
@@ -599,8 +817,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Central article (always visible and centered!)
         article_display = gr.Textbox(
-            value="This is where your article will appear. Iterate it in order to get as close to the truth as you can!",
-            lines=20,
+            value="📝 YOUR ARTICLE\n" + "=" * 44 + "\n\nYour generated article will appear here.\n\nIterate it in order to get as close to the truth as you can!",
+            lines=60,
             interactive=False,
             show_copy_button=False,
             container=True,
@@ -608,10 +826,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             show_label=False
         )
 
-        # Right panel - Agent debates and evaluations
+        # Right panel - Source material (Wikipedia & arXiv)
         right_panel = gr.Textbox(
-            value="# 🔄 Epistemic Processing\n\nThis panel will display:\n\n- **Multi-agent debates** between advocates and skeptics\n- **Self-critique** reasoning and improvements\n- **Epistemic scoring** and quality metrics\n- **Real-time updates** and simulations\n\nUse the action buttons above to activate different epistemic tools.",
-            lines=20,
+            value="📚 SOURCE MATERIAL\n" + "=" * 44 + "\n\nThis panel displays source articles used to generate your article:\n\n- Wikipedia articles (general knowledge)\n- arXiv papers (academic research)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation.",
+            lines=60,
             interactive=False,
             show_copy_button=False,
             show_label=False,
@@ -625,6 +843,14 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         fn=generate_initial_article,
         inputs=[topic_input],
         outputs=[article_display, left_panel, right_panel]
+    ).then(
+        fn=None,
+        js="""() => {
+            setTimeout(() => {
+                const textareas = document.querySelectorAll('textarea');
+                textareas.forEach(t => { t.scrollTop = 0; });
+            }, 100);
+        }"""
     )
 
     # Also trigger on Enter key in topic input
@@ -632,6 +858,14 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         fn=generate_initial_article,
         inputs=[topic_input],
         outputs=[article_display, left_panel, right_panel]
+    ).then(
+        fn=None,
+        js="""() => {
+            setTimeout(() => {
+                const textareas = document.querySelectorAll('textarea');
+                textareas.forEach(t => { t.scrollTop = 0; });
+            }, 100);
+        }"""
     )
 
 
