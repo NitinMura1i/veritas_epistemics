@@ -20,6 +20,9 @@ client = Client(api_key=api_key, timeout=3600)
 article_history = []
 current_sources = []
 source_visible = False  # Track if source panel is visible
+current_article_clean = ""  # Store article content without headers for debate
+current_grounding_context = ""  # Store grounding context for debates
+original_article = ""  # Store original article before any debates
 
 
 def toggle_source_view():
@@ -94,6 +97,126 @@ def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
         return None
 
 
+def run_multi_agent_debate():
+    """Run multi-agent debate on current article."""
+    global current_article_clean, current_grounding_context, article_history, original_article
+
+    if not current_article_clean:
+        error_msg = "⚠️ No article to debate. Please generate an article first."
+        return original_article, error_msg, ""
+
+    # Left panel: original article (before any debates)
+    left_display = "📄 ORIGINAL ARTICLE\n"
+    left_display += "=" * 44 + "\n\n"
+    left_display += original_article
+
+    # Center panel: debate transcript (progressive updates)
+    debate_transcript = "🎭 MULTI-AGENT DEBATE\n"
+    debate_transcript += "=" * 44 + "\n\n"
+    debate_transcript += "⏳ Initializing debate agents...\n\n"
+
+    yield left_display, debate_transcript, ""
+
+    # Agent 1: Defender
+    debate_transcript += "🟢 DEFENDER AGENT\n"
+    debate_transcript += "-" * 44 + "\n"
+    debate_transcript += "⏳ Analyzing article for strengths...\n\n"
+    yield left_display, debate_transcript, ""
+
+    try:
+        defender_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+        defender_chat.append(system(
+            "You are the Defender agent in an epistemic debate. Your role is to identify and support "
+            "the strongest claims in the article. Provide evidence, reasoning, and citations from the "
+            "grounding context. Be rigorous but fair. Provide a concise defense (~200 words)."
+        ))
+        defender_chat.append(user(
+            f"Defend the key claims in this article:\n\n{current_article_clean}\n\nGrounding context:\n{current_grounding_context}"))
+        defender_response = defender_chat.sample().content.strip()
+
+        debate_transcript += f"{defender_response}\n\n\n"
+        yield left_display, debate_transcript, ""
+
+        # Agent 2: Challenger
+        debate_transcript += "🔴 CHALLENGER AGENT\n"
+        debate_transcript += "-" * 44 + "\n"
+        debate_transcript += "⏳ Analyzing article for weaknesses...\n\n"
+        yield left_display, debate_transcript, ""
+
+        challenger_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+        challenger_chat.append(system(
+            "You are the Challenger agent in an epistemic debate. Your role is to critically examine "
+            "the article for weaknesses, overstatements, missing context, or unsupported claims. "
+            "Be aggressive but evidence-based. Point out specific issues. Provide a concise critique (~200 words)."
+        ))
+        challenger_chat.append(user(
+            f"Challenge the claims in this article:\n\n{current_article_clean}\n\nGrounding context:\n{current_grounding_context}"))
+        challenger_response = challenger_chat.sample().content.strip()
+
+        debate_transcript += f"{challenger_response}\n\n\n"
+        yield left_display, debate_transcript, ""
+
+        # Agent 3: Arbiter (produces revised article)
+        debate_transcript += "⚖️ ARBITER AGENT\n"
+        debate_transcript += "-" * 44 + "\n"
+        debate_transcript += "⏳ Synthesizing debate and producing revised article...\n\n"
+        yield left_display, debate_transcript, ""
+
+        arbiter_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+        arbiter_chat.append(system(
+            "You are the Arbiter agent. Read the original article, the Defender's support, and the Challenger's criticisms. "
+            "Produce a revised article that:\n"
+            "- Strengthens valid points raised by the Defender\n"
+            "- Addresses valid criticisms from the Challenger\n"
+            "- Adds qualifiers and nuance where needed\n"
+            "- Maintains factual accuracy and epistemic integrity\n"
+            "- Keeps the same structure and ~300 word length\n"
+            "Output ONLY the final revised article in markdown format, with inline citations and a Sources section."
+        ))
+        arbiter_chat.append(user(f"""Original article:
+{current_article_clean}
+
+Defender's arguments:
+{defender_response}
+
+Challenger's criticisms:
+{challenger_response}
+
+Grounding context:
+{current_grounding_context}
+
+Produce the final revised article."""))
+
+        revised_article = arbiter_chat.sample().content.strip()
+
+        debate_transcript += "✅ Debate complete! Revised article generated.\n\n"
+        debate_transcript += "**Key improvements:**\n"
+        debate_transcript += "- Incorporated Defender's supporting evidence\n"
+        debate_transcript += "- Addressed Challenger's valid criticisms\n"
+        debate_transcript += "- Added epistemic qualifiers where appropriate\n"
+
+        # Right panel: revised article
+        right_display = "📝 REVISED ARTICLE\n"
+        right_display += "=" * 44 + "\n\n"
+        right_display += revised_article
+
+        # Update current article to the revision for iterative debates
+        current_article_clean = revised_article
+
+        # Store revised article in history
+        final_article = f"📝 REVISED ARTICLE (Post-Debate)\n"
+        final_article += "=" * 44 + "\n\n"
+        final_article += f"__Epistemically refined through multi-agent debate__\n\n---\n\n{revised_article}"
+        article_history.append(final_article)
+
+        yield left_display, debate_transcript, right_display
+
+    except Exception as e:
+        error_transcript = debate_transcript + \
+            f"\n\n❌ Error during debate: {str(e)}\n\nPlease try again."
+        yield left_display, error_transcript, ""
+
+
 def fetch_arxiv(topic: str) -> Optional[Dict[str, str]]:
     """Fetch arXiv paper for a given topic."""
     try:
@@ -131,7 +254,8 @@ def fetch_arxiv(topic: str) -> Optional[Dict[str, str]]:
         title = title.text.strip().replace('\n', ' ') if title is not None else ""
 
         summary = entry.find('atom:summary', ns)
-        summary = summary.text.strip().replace('\n', ' ') if summary is not None else "No abstract available"
+        summary = summary.text.strip().replace(
+            '\n', ' ') if summary is not None else "No abstract available"
 
         # Get authors
         authors = []
@@ -160,7 +284,7 @@ def fetch_arxiv(topic: str) -> Optional[Dict[str, str]]:
 
 def generate_initial_article(topic: str):
     """Generate initial article with Wikipedia and arXiv grounding."""
-    global article_history, current_sources
+    global article_history, current_sources, current_article_clean, current_grounding_context, original_article
 
     # Status in left panel
     status_log = "🔍 PROCESS LOG\n"
@@ -212,12 +336,16 @@ def generate_initial_article(topic: str):
         sources_display += f"{paper_data['content'][:2500]}"
 
         source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:2000]}\n\n---\n\narXiv Paper: {paper_data['title']}\nAuthors: {paper_data['authors']}\n\n{paper_data['content'][:2000]}"
-        source_notes.append(f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
-        source_notes.append(f"[arXiv: {paper_data['title'][:50]}...]({paper_data['url']})")
+        source_notes.append(
+            f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
+        source_notes.append(
+            f"[arXiv: {paper_data['title'][:50]}...]({paper_data['url']})")
 
         current_sources = [
-            {"name": wiki_data['title'], "type": "Wikipedia", "url": wiki_data['url'], "content": wiki_data['content']},
-            {"name": paper_data['title'], "type": "arXiv", "url": paper_data['url'], "content": paper_data['content'], "authors": paper_data['authors']}
+            {"name": wiki_data['title'], "type": "Wikipedia",
+                "url": wiki_data['url'], "content": wiki_data['content']},
+            {"name": paper_data['title'], "type": "arXiv", "url": paper_data['url'],
+                "content": paper_data['content'], "authors": paper_data['authors']}
         ]
 
     elif wiki_data:
@@ -230,8 +358,10 @@ def generate_initial_article(topic: str):
         sources_display += f"{wiki_data['content'][:2500]}"
 
         source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"
-        source_notes.append(f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
-        current_sources = [{"name": wiki_data['title'], "type": "Wikipedia", "url": wiki_data['url'], "content": wiki_data['content']}]
+        source_notes.append(
+            f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
+        current_sources = [{"name": wiki_data['title'], "type": "Wikipedia",
+                            "url": wiki_data['url'], "content": wiki_data['content']}]
 
     elif paper_data:
         # Only Semantic Scholar found
@@ -244,8 +374,10 @@ def generate_initial_article(topic: str):
         sources_display += f"{paper_data['content'][:2500]}"
 
         source_context = f"arXiv Paper: {paper_data['title']}\nAuthors: {paper_data['authors']}\n\n{paper_data['content'][:3000]}"
-        source_notes.append(f"[arXiv: {paper_data['title'][:50]}...]({paper_data['url']})")
-        current_sources = [{"name": paper_data['title'], "type": "arXiv", "url": paper_data['url'], "content": paper_data['content'], "authors": paper_data['authors']}]
+        source_notes.append(
+            f"[arXiv: {paper_data['title'][:50]}...]({paper_data['url']})")
+        current_sources = [{"name": paper_data['title'], "type": "arXiv", "url": paper_data['url'],
+                            "content": paper_data['content'], "authors": paper_data['authors']}]
 
     else:
         # No sources found
@@ -253,7 +385,8 @@ def generate_initial_article(topic: str):
         current_sources = []
 
     # Show sources in right panel - keep placeholder during generation
-    loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + "\n\n⏳ Loading sources...\n\nSources will appear here when article generation is complete."
+    loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
+        "\n\n⏳ Loading sources...\n\nSources will appear here when article generation is complete."
 
     if current_sources:
         status_log += "⏳ Generating epistemically grounded article...\n\n"
@@ -316,6 +449,11 @@ Format the article in clean markdown."""
 
         # Store in history
         article_history.append(final_article)
+
+        # Store clean article and grounding context for debates
+        current_article_clean = article_content
+        original_article = article_content
+        current_grounding_context = source_context
 
         # Update status log to show completion
         status_log += "✅ Article generation complete!\n\n"
@@ -420,6 +558,32 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         footer {
             display: none !important;  /* hide Gradio footer */
         }
+        html, body {
+            overflow-x: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            max-height: 100vh !important;
+            overflow-y: auto !important;
+        }
+        body > div,
+        .gradio-container,
+        .gradio-container > div,
+        #root,
+        .app,
+        .main,
+        .wrap,
+        .block {
+            padding-bottom: 0px !important;
+            margin-bottom: 0px !important;
+            min-height: unset !important;
+        }
+        /* Force cut off after content */
+        .gradio-container::after {
+            content: '' !important;
+            display: block !important;
+            height: 0px !important;
+            clear: both !important;
+        }
         .chat-input-container {
             position: relative;
         }
@@ -476,6 +640,40 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         }
         .send-btn:hover {
             background-color: #4f46e5 !important;
+        }
+
+        /* Action button styling */
+        #action-button {
+            background-color: #0f0f0f !important;
+            border: 2px solid #6366f1 !important;
+            color: #6366f1 !important;
+            border-radius: 8px !important;
+            font-family: monospace !important;
+            font-size: 0.95rem !important;
+            font-weight: normal !important;
+            padding: 6px 20px !important;
+            height: 38px !important;
+            cursor: pointer !important;
+            transition: all 0.3s ease !important;
+        }
+
+        #action-button:hover {
+            background-color: #1a1a1a !important;
+            border-color: #4f46e5 !important;
+            color: #4f46e5 !important;
+        }
+
+        #action-button:disabled {
+            opacity: 0.4 !important;
+            cursor: not-allowed !important;
+            border-color: #444444 !important;
+            color: #666666 !important;
+        }
+
+        #action-button:disabled:hover {
+            background-color: #0f0f0f !important;
+            border-color: #444444 !important;
+            color: #666666 !important;
         }
         /* Top control row - dropdown and input */
         .top-control-row {
@@ -597,12 +795,22 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         /* Article row - contains side panels + central article */
         .article-row {
             max-width: 1600px !important;
-            margin: -20px auto 20px auto !important;
+            margin: -20px auto 0px auto !important;
             gap: 20px !important;
-            padding: 0 20px !important;
+            padding: 0 20px 0 20px !important;
             align-items: flex-start !important;
             border: none !important;
             background: transparent !important;
+        }
+
+        /* Kill any space after article row */
+        .article-row ~ * {
+            display: none !important;
+        }
+
+        /* Ensure container height fits content */
+        .gradio-container {
+            max-height: fit-content !important;
         }
 
         /* Force all columns in article row to start at same height */
@@ -766,7 +974,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         # Epistemic tools dropdown
         epistemic_dropdown = gr.Dropdown(
             choices=[
-                "Epistemic Tools",
+                "Article Generation",
                 "Multi-Agent Debate",
                 "Self-Critique",
                 "Synthetic Data",
@@ -775,7 +983,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 "User Feedback"
             ],
             show_label=False,
-            value="Epistemic Tools",
+            value="Article Generation",
             interactive=True,
             scale=0,
             min_width=200,
@@ -784,7 +992,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         )
 
         # Chat-style input with send arrow
-        with gr.Column(elem_classes=["chat-input-container"], scale=2):
+        with gr.Column(elem_classes=["chat-input-container"], scale=1):
             topic_input = gr.Textbox(
                 placeholder="Enter a topic of your choice. e.g. Machine Learning, Astrology, Global Warming",
                 lines=1,
@@ -799,6 +1007,15 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 elem_classes=["send-btn"],
                 size="sm"
             )
+
+        # Dynamic action button
+        action_button = gr.Button(
+            value="Generate Article",
+            variant="primary",
+            scale=0,
+            min_width=180,
+            elem_id="action-button"
+        )
 
     # The article panels row - now full width!
     # All 3 panels always visible to keep center article perfectly centered
@@ -817,7 +1034,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Central article (always visible and centered!)
         article_display = gr.Textbox(
-            value="📝 YOUR ARTICLE\n" + "=" * 44 + "\n\nYour generated article will appear here.\n\nIterate it in order to get as close to the truth as you can!",
+            value="📝 YOUR ARTICLE\n" + "=" * 44 +
+            "\n\nYour generated article will appear here.\n\nIterate it in order to get as close to the truth as you can!",
             lines=60,
             interactive=False,
             show_copy_button=False,
@@ -828,7 +1046,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Right panel - Source material (Wikipedia & arXiv)
         right_panel = gr.Textbox(
-            value="📚 SOURCE MATERIAL\n" + "=" * 44 + "\n\nThis panel displays source articles used to generate your article:\n\n- Wikipedia articles (general knowledge)\n- arXiv papers (academic research)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation.",
+            value="📚 SOURCE MATERIAL\n" + "=" * 44 +
+            "\n\nThis panel displays source articles used to generate your article:\n\n- Wikipedia articles (general knowledge)\n- arXiv papers (academic research)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation.",
             lines=60,
             interactive=False,
             show_copy_button=False,
@@ -857,6 +1076,64 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     topic_input.submit(
         fn=generate_initial_article,
         inputs=[topic_input],
+        outputs=[article_display, left_panel, right_panel]
+    ).then(
+        fn=None,
+        js="""() => {
+            setTimeout(() => {
+                const textareas = document.querySelectorAll('textarea');
+                textareas.forEach(t => { t.scrollTop = 0; });
+            }, 100);
+        }"""
+    )
+
+    # Update action button text and input state based on dropdown selection
+    def update_ui_state(selected_tool):
+        button_text_map = {
+            "Article Generation": "Generate Article",
+            "Multi-Agent Debate": "Start Debate",
+            "Self-Critique": "Critique Article",
+            "Synthetic Data": "Generate Data",
+            "Epistemic Score": "Score Article",
+            "Update Simulation": "Simulate Updates",
+            "User Feedback": "Collect Feedback"
+        }
+
+        button_text = button_text_map.get(selected_tool, "Generate Article")
+
+        # Disable topic input when epistemic tool is selected
+        topic_disabled = (selected_tool != "Article Generation")
+
+        # Check if article exists for epistemic tools
+        button_disabled = topic_disabled and not current_article_clean
+
+        return (
+            gr.update(value=button_text, interactive=not button_disabled),
+            gr.update(interactive=not topic_disabled)
+        )
+
+    epistemic_dropdown.change(
+        fn=update_ui_state,
+        inputs=[epistemic_dropdown],
+        outputs=[action_button, topic_input]
+    )
+
+    # Route action button to correct function based on dropdown
+    def execute_action(selected_tool, topic):
+        if selected_tool == "Article Generation":
+            # Generate article
+            yield from generate_initial_article(topic)
+        elif selected_tool == "Multi-Agent Debate":
+            # Run debate
+            yield from run_multi_agent_debate()
+        else:
+            # Placeholder for other tools
+            error_msg = f"⚠️ {selected_tool} not yet implemented."
+            yield "", error_msg, ""
+
+    action_button.click(
+        fn=execute_action,
+        inputs=[epistemic_dropdown, topic_input],
         outputs=[article_display, left_panel, right_panel]
     ).then(
         fn=None,
