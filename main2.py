@@ -528,7 +528,7 @@ dark_theme = gr.themes.Default(
     body_text_size="md",
 )
 
-with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Article Generator") as demo:
+with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Article Generator", fill_height=False) as demo:
     # Centered title image
     gr.Image(
         value="veritas_title.png",
@@ -797,10 +797,43 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             max-width: 1600px !important;
             margin: -20px auto 0px auto !important;
             gap: 20px !important;
-            padding: 0 20px 0 20px !important;
+            padding: 0 0px 20px 0px !important;
             align-items: flex-start !important;
             border: none !important;
             background: transparent !important;
+            height: auto !important;
+            min-height: auto !important;
+        }
+
+        /* Target the block containers that wrap each panel - THIS IS THE CULPRIT */
+        .article-row .block,
+        .article-row .block.side-panel,
+        .article-row .block.left-panel,
+        .article-row .block.right-panel,
+        .article-row .block.central-article {
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+        }
+
+        /* Kill the unequal-height class that adds extra space */
+        .article-row.unequal-height,
+        .row.unequal-height {
+            height: auto !important;
+            min-height: auto !important;
+            max-height: fit-content !important;
+        }
+
+        /* Target the main fillable container - this is what fills viewport */
+        main {
+            min-height: 0 !important;
+            height: auto !important;
+        }
+
+        main.fillable,
+        main.app {
+            min-height: 0 !important;
+            height: auto !important;
         }
 
         /* Kill any space after article row */
@@ -811,6 +844,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         /* Ensure container height fits content */
         .gradio-container {
             max-height: fit-content !important;
+            height: auto !important;
         }
 
         /* Force all columns in article row to start at same height */
@@ -870,9 +904,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             font-family: monospace !important;
             font-size: 0.95rem !important;
             line-height: 1.6 !important;
-            min-height: 2000px !important;
-            max-height: 2000px !important;
-            overflow-y: auto !important;
+            height: auto !important;
             box-shadow: 0 2px 12px rgba(99, 102, 241, 0.1) !important;
             transition: all 0.3s ease !important;
             margin-top: 0 !important;
@@ -898,9 +930,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             font-family: monospace !important;
             font-size: 1.05rem !important;
             line-height: 1.6 !important;
-            min-height: 2000px !important;
-            max-height: 2000px !important;
-            overflow-y: auto !important;
+            height: auto !important;
             box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3) !important;
             margin-top: 0 !important;
         }
@@ -910,14 +940,54 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             margin-top: 0 !important;
         }
 
-        /* Override to force textarea borders */
+        /* Make textareas scrollable with reasonable fixed height */
         .side-panel textarea,
         .left-panel textarea,
         .right-panel textarea,
         .central-article textarea {
-            border: 1px solid #ffffff !important;
-            border-radius: 12px !important;
+            height: 600px !important;
+            min-height: 600px !important;
+            max-height: 600px !important;
+            resize: none !important;
+            overflow-y: scroll !important;
+            overflow-x: hidden !important;
+            scrollbar-width: thin !important;
+            scrollbar-color: #6366f1 #0f0f0f !important;
         }
+
+        /* Chrome/Safari/Edge scrollbar styling - make it VERY visible */
+        .side-panel textarea::-webkit-scrollbar,
+        .left-panel textarea::-webkit-scrollbar,
+        .right-panel textarea::-webkit-scrollbar,
+        .central-article textarea::-webkit-scrollbar {
+            width: 16px !important;
+            display: block !important;
+        }
+
+        .side-panel textarea::-webkit-scrollbar-track,
+        .left-panel textarea::-webkit-scrollbar-track,
+        .right-panel textarea::-webkit-scrollbar-track,
+        .central-article textarea::-webkit-scrollbar-track {
+            background: #2a2a2a !important;
+            border-radius: 0px !important;
+        }
+
+        .side-panel textarea::-webkit-scrollbar-thumb,
+        .left-panel textarea::-webkit-scrollbar-thumb,
+        .right-panel textarea::-webkit-scrollbar-thumb,
+        .central-article textarea::-webkit-scrollbar-thumb {
+            background: #6366f1 !important;
+            border-radius: 0px !important;
+            border: none !important;
+        }
+
+        .side-panel textarea::-webkit-scrollbar-thumb:hover,
+        .left-panel textarea::-webkit-scrollbar-thumb:hover,
+        .right-panel textarea::-webkit-scrollbar-thumb:hover,
+        .central-article textarea::-webkit-scrollbar-thumb:hover {
+            background: #818cf8 !important;
+        }
+
         .central-article::placeholder {
             color: #777777 !important;
             opacity: 0.7 !important;
@@ -1022,8 +1092,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     with gr.Row(elem_classes=["article-row"]):
         # Left panel - Process log and status
         left_panel = gr.Textbox(
-            value="🔍 PROCESS LOG\n" + "=" * 44 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Wikipedia search progress\n- arXiv paper search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the arrow to begin!",
-            lines=60,
+            value="🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Wikipedia search progress\n- arXiv paper search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the arrow to begin!",
+            lines=30,
             interactive=False,
             show_copy_button=False,
             show_label=False,
@@ -1034,9 +1104,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Central article (always visible and centered!)
         article_display = gr.Textbox(
-            value="📝 YOUR ARTICLE\n" + "=" * 44 +
+            value="📝 YOUR ARTICLE\n" + "=" * 42 +
             "\n\nYour generated article will appear here.\n\nIterate it in order to get as close to the truth as you can!",
-            lines=60,
+            lines=30,
             interactive=False,
             show_copy_button=False,
             container=True,
@@ -1046,9 +1116,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Right panel - Source material (Wikipedia & arXiv)
         right_panel = gr.Textbox(
-            value="📚 SOURCE MATERIAL\n" + "=" * 44 +
+            value="📚 SOURCE MATERIAL\n" + "=" * 42 +
             "\n\nThis panel displays source articles used to generate your article:\n\n- Wikipedia articles (general knowledge)\n- arXiv papers (academic research)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation.",
-            lines=60,
+            lines=30,
             interactive=False,
             show_copy_button=False,
             show_label=False,
