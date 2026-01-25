@@ -223,7 +223,7 @@ def fetch_arxiv(topic: str) -> Optional[Dict[str, str]]:
         import xml.etree.ElementTree as ET
 
         # arXiv API endpoint
-        search_url = "http://export.arxiv.org/api/query"
+        search_url = "https://export.arxiv.org/api/query"
 
         params = {
             "search_query": f"all:{topic}",
@@ -233,7 +233,10 @@ def fetch_arxiv(topic: str) -> Optional[Dict[str, str]]:
             "sortOrder": "descending"
         }
 
-        response = requests.get(search_url, params=params, timeout=10)
+        headers = {
+            "User-Agent": "Veritas-Epistemics/1.0 (Educational Article Generator; mailto:user@example.com)"
+        }
+        response = requests.get(search_url, params=params, headers=headers, timeout=10)
 
         if response.status_code != 200:
             return None
