@@ -23,6 +23,7 @@ source_visible = False  # Track if source panel is visible
 current_article_clean = ""  # Store article content without headers for debate
 current_grounding_context = ""  # Store grounding context for debates
 original_article = ""  # Store original article before any debates
+version_panel_visible = False  # Track if version history panel is visible
 
 
 def toggle_source_view():
@@ -31,14 +32,49 @@ def toggle_source_view():
 
     source_visible = not source_visible
 
-    if source_visible and current_sources:
-        # Show Wikipedia source content
-        source = current_sources[0]
-        wiki_display = f"# 📚 Source Material\n\n**{source['name']}**\n\n{source.get('url', '')}\n\n---\n\n{source.get('content', '')[:2000]}..."
-        return wiki_display
-    else:
-        # Return to default placeholder text
-        return "# 📚 Source Material\n\nClick **'View Source'** to see the Wikipedia article or other source material used to generate the article.\n\nThis panel will also display retrieved context and grounding information during article generation."
+
+def toggle_version_panel():
+    """Toggle version history panel visibility."""
+    global version_panel_visible
+    version_panel_visible = not version_panel_visible
+    return build_version_history_html()
+
+
+def build_version_history_html():
+    """Build HTML for version history list."""
+    global article_history
+
+    if not article_history:
+        return "<div style='color: #9ca3af; text-align: center; padding: 20px;'>No versions yet. Generate an article to begin.</div>"
+
+    html = ""
+    for idx, article in enumerate(reversed(article_history)):
+        version_num = len(article_history) - idx
+        is_latest = (idx == 0)
+
+        # Extract version type from article header
+        if "Post-Debate" in article:
+            version_type = "Post-Debate"
+        elif "Post-Critique" in article:
+            version_type = "Post-Critique"
+        else:
+            version_type = "Original"
+
+        latest_class = " latest" if is_latest else ""
+
+        html += f"""
+        <div class='version-item{latest_class}' onclick='selectVersion({version_num - 1})'>
+            <div class='version-label'>v{version_num} {"(Latest)" if is_latest else ""}</div>
+            <div class='version-type'>{version_type}</div>
+        </div>
+        """
+
+    return html
+
+
+def update_version_history(*args):
+    """Wrapper to update version history, ignoring any input args from previous step."""
+    return build_version_history_html()
 
 
 def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
@@ -236,7 +272,8 @@ def fetch_arxiv(topic: str) -> Optional[Dict[str, str]]:
         headers = {
             "User-Agent": "Veritas-Epistemics/1.0 (Educational Article Generator; mailto:user@example.com)"
         }
-        response = requests.get(search_url, params=params, headers=headers, timeout=10)
+        response = requests.get(search_url, params=params,
+                                headers=headers, timeout=10)
 
         if response.status_code != 200:
             return None
@@ -997,6 +1034,123 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             font-style: italic !important;
             text-align: center !important;
         }
+
+        /* Version History Panel - raw HTML injection */
+        #version-panel {
+            position: fixed;
+            top: 0;
+            right: -450px;
+            width: 400px;
+            height: 100vh;
+            background-color: #0f0f0f;
+            border-left: 3px solid #6366f1;
+            z-index: 9999;
+            overflow-y: auto;
+            padding: 20px;
+            box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+            transition: right 0.3s ease;
+            pointer-events: none;
+        }
+
+        #version-panel.visible {
+            right: 0;
+            pointer-events: auto;
+        }
+
+        #close-version-panel:hover {
+            color: #f87171;
+            transform: scale(1.2);
+        }
+
+        .version-item {
+            background-color: #1a1a1a;
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .version-item:hover {
+            border-color: #6366f1;
+            background-color: #252525;
+        }
+
+        .version-item.latest {
+            border-color: #10b981;
+            background-color: #1a2420;
+        }
+
+        .version-label {
+            font-weight: bold;
+            color: #e5e7eb;
+            margin-bottom: 4px;
+        }
+
+        .version-type {
+            font-size: 0.85rem;
+            color: #9ca3af;
+        }
+
+        .version-history-header {
+            font-size: 1.2rem !important;
+            font-weight: bold !important;
+            color: #6366f1 !important;
+            margin-bottom: 20px !important;
+            padding-bottom: 10px !important;
+            border-bottom: 2px solid #333 !important;
+        }
+
+        .version-item {
+            background-color: #1a1a1a !important;
+            border: 2px solid #333 !important;
+            border-radius: 8px !important;
+            padding: 12px !important;
+            margin-bottom: 10px !important;
+            cursor: pointer !important;
+            transition: all 0.2s ease !important;
+        }
+
+        .version-item:hover {
+            border-color: #6366f1 !important;
+            background-color: #252525 !important;
+        }
+
+        .version-item.latest {
+            border-color: #10b981 !important;
+            background-color: #1a2420 !important;
+        }
+
+        .version-label {
+            font-weight: bold !important;
+            color: #e5e7eb !important;
+            margin-bottom: 4px !important;
+        }
+
+        .version-type {
+            font-size: 0.85rem !important;
+            color: #9ca3af !important;
+        }
+
+        #version-history-btn {
+            background-color: #0f0f0f !important;
+            border: 2px solid #6366f1 !important;
+            color: #6366f1 !important;
+            border-radius: 8px !important;
+            font-family: monospace !important;
+            font-size: 0.9rem !important;
+            padding: 6px 16px !important;
+            height: 38px !important;
+            cursor: pointer !important;
+            transition: all 0.3s ease !important;
+        }
+
+        #version-history-btn:hover {
+            background-color: #1a1a1a !important;
+            border-color: #4f46e5 !important;
+            color: #4f46e5 !important;
+        }
     </style>
     <script>
         // Scroll textareas to top after content updates
@@ -1010,6 +1164,48 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         // Run on page load and periodically check for updates
         window.addEventListener('load', scrollToTop);
         setInterval(scrollToTop, 500);
+
+        // Inject version panel directly into body on page load
+        function injectVersionPanel() {
+            if (!document.getElementById('version-panel')) {
+                const panel = document.createElement('div');
+                panel.id = 'version-panel';
+                panel.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; font-weight: bold; color: #6366f1; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #333;">
+                        <span>📜 VERSION HISTORY</span>
+                        <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #6366f1; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
+                    </div>
+                    <div id="version-list">
+                        <div style='color: #9ca3af; text-align: center; padding: 20px;'>No versions yet. Generate an article to begin.</div>
+                    </div>
+                `;
+                document.body.appendChild(panel);
+            }
+        }
+
+        // Try multiple times to ensure it loads
+        window.addEventListener('DOMContentLoaded', injectVersionPanel);
+        window.addEventListener('load', injectVersionPanel);
+        setTimeout(injectVersionPanel, 100);
+        setTimeout(injectVersionPanel, 500);
+
+        // Helper to update version list from Gradio state
+        function updateVersionList(html) {
+            const versionList = document.getElementById('version-list');
+            if (versionList && html) {
+                versionList.innerHTML = html;
+            }
+        }
+
+        // Function called when clicking a version item
+        function selectVersion(index) {
+            // TODO: Implement loading specific version into center panel
+            // For now, just close the panel
+            const panel = document.getElementById('version-panel');
+            if (panel) {
+                panel.classList.remove('visible');
+            }
+        }
     </script>
     <style>
         /* Toolbar nuke (your existing rule kept) */
@@ -1090,6 +1286,15 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             elem_id="action-button"
         )
 
+        # Version History button
+        version_history_btn = gr.Button(
+            value="History",
+            variant="secondary",
+            scale=0,
+            min_width=100,
+            elem_id="version-history-btn"
+        )
+
     # The article panels row - now full width!
     # All 3 panels always visible to keep center article perfectly centered
     with gr.Row(elem_classes=["article-row"]):
@@ -1130,18 +1335,32 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             visible=True
         )
 
+    # Hidden HTML component for version panel (must be HTML, not State, to pass to JS)
+    version_state = gr.HTML(value="", visible=False,
+                            elem_id="version-state-holder")
+
     # Wire up the send button
     send_arrow.click(
         fn=generate_initial_article,
         inputs=[topic_input],
         outputs=[article_display, left_panel, right_panel]
     ).then(
+        fn=update_version_history,
+        inputs=[article_display, left_panel, right_panel],
+        outputs=[version_state]
+    ).then(
         fn=None,
-        js="""() => {
+        inputs=[version_state],
+        js="""(versionHtml) => {
             setTimeout(() => {
                 const textareas = document.querySelectorAll('textarea');
                 textareas.forEach(t => { t.scrollTop = 0; });
             }, 100);
+
+            const versionList = document.getElementById('version-list');
+            if (versionList && versionHtml) {
+                versionList.innerHTML = versionHtml;
+            }
         }"""
     )
 
@@ -1151,12 +1370,22 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         inputs=[topic_input],
         outputs=[article_display, left_panel, right_panel]
     ).then(
+        fn=update_version_history,
+        inputs=[article_display, left_panel, right_panel],
+        outputs=[version_state]
+    ).then(
         fn=None,
-        js="""() => {
+        inputs=[version_state],
+        js="""(versionHtml) => {
             setTimeout(() => {
                 const textareas = document.querySelectorAll('textarea');
                 textareas.forEach(t => { t.scrollTop = 0; });
             }, 100);
+
+            const versionList = document.getElementById('version-list');
+            if (versionList && versionHtml) {
+                versionList.innerHTML = versionHtml;
+            }
         }"""
     )
 
@@ -1209,12 +1438,60 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         inputs=[epistemic_dropdown, topic_input],
         outputs=[article_display, left_panel, right_panel]
     ).then(
+        fn=update_version_history,
+        inputs=[article_display, left_panel, right_panel],
+        outputs=[version_state]
+    ).then(
         fn=None,
-        js="""() => {
+        inputs=[version_state],
+        js="""(versionHtml) => {
             setTimeout(() => {
                 const textareas = document.querySelectorAll('textarea');
                 textareas.forEach(t => { t.scrollTop = 0; });
             }, 100);
+
+            const versionList = document.getElementById('version-list');
+            if (versionList && versionHtml) {
+                versionList.innerHTML = versionHtml;
+            }
+        }"""
+    )
+
+    # Version History button click handler
+    version_history_btn.click(
+        fn=toggle_version_panel,
+        outputs=[version_state]
+    ).then(
+        fn=None,
+        inputs=[version_state],
+        js="""(versionListHtml) => {
+            // Ensure panel exists
+            if (!document.getElementById('version-panel')) {
+                const panel = document.createElement('div');
+                panel.id = 'version-panel';
+                panel.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; font-weight: bold; color: #6366f1; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #333;">
+                        <span>📜 VERSION HISTORY</span>
+                        <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #6366f1; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
+                    </div>
+                    <div id="version-list">
+                        <div style='color: #9ca3af; text-align: center; padding: 20px;'>No versions yet. Generate an article to begin.</div>
+                    </div>
+                `;
+                document.body.appendChild(panel);
+            }
+
+            // Update the version list content
+            const versionList = document.getElementById('version-list');
+            if (versionList && versionListHtml) {
+                versionList.innerHTML = versionListHtml;
+            }
+
+            // Toggle panel visibility
+            const panel = document.getElementById('version-panel');
+            if (panel) {
+                panel.classList.toggle('visible');
+            }
         }"""
     )
 
