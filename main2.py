@@ -133,6 +133,116 @@ def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
         return None
 
 
+def run_self_critique():
+    """Run self-critique with chain-of-thought analysis streaming."""
+    global current_article_clean, current_grounding_context, article_history, original_article
+
+    if not current_article_clean:
+        error_msg = "⚠️ No article to critique. Please generate an article first."
+        return original_article, error_msg, ""
+
+    # Center panel: original article (before critique)
+    center_display = "📄 ORIGINAL ARTICLE\n"
+    center_display += "=" * 44 + "\n\n"
+    center_display += original_article
+
+    # Left panel: critique analysis (streaming)
+    critique_analysis = "🔍 SELF-CRITIQUE ANALYSIS\n"
+    critique_analysis += "=" * 44 + "\n\n"
+    critique_analysis += "⏳ Analyzing article for epistemic issues...\n\n"
+
+    yield center_display, critique_analysis, ""
+
+    try:
+        # Step 1: Generate critique analysis with streaming
+        critique_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+        critique_chat.append(system(
+            "You are a meticulous epistemic critic. Think out loud as you read through the article, "
+            "sharing your immediate reactions and reasoning as you notice issues.\n\n"
+            "CRITICAL CONSTRAINTS:\n"
+            "- Maximum 300 words total\n"
+            "- Focus on 2-3 most critical issues\n"
+            "- Write naturally, as if talking through your observations\n\n"
+            "Example style:\n"
+            "\"Hmm, looking at this claim about X... wait, the source doesn't actually say that. "
+            "This seems like an overstatement because... What bothers me is... "
+            "Better approach would be...\"\n\n"
+            "Focus on: overstatements, missing context, lack of epistemic humility, one-sided framing."
+        ))
+        critique_chat.append(user(
+            f"Analyze this article for epistemic issues:\n\n{current_article_clean}"
+        ))
+
+        # Stream the critique analysis
+        full_critique = ""
+        for response, chunk in critique_chat.stream():
+            if chunk.content:
+                full_critique += chunk.content
+                critique_analysis_display = "🔍 SELF-CRITIQUE ANALYSIS\n"
+                critique_analysis_display += "=" * 44 + "\n\n"
+                critique_analysis_display += full_critique
+                yield center_display, critique_analysis_display, ""
+
+        # Step 2: Generate refined article based on critique
+        critique_analysis_display = "🔍 SELF-CRITIQUE ANALYSIS\n"
+        critique_analysis_display += "=" * 44 + "\n\n"
+        critique_analysis_display += full_critique + "\n\n"
+        critique_analysis_display += "✓ Analysis complete. Generating refined article...\n"
+        yield center_display, critique_analysis_display, ""
+
+        refinement_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+        refinement_chat.append(system(
+            "You are refining an article based on epistemic critique. Your task:\n"
+            "- Address all valid concerns raised in the critique\n"
+            "- Add appropriate qualifiers and nuance\n"
+            "- Strengthen unsupported claims with evidence or soften them\n"
+            "- Maintain factual accuracy and cite sources\n"
+            "- Keep the same structure and ~300 word length\n"
+            "Output ONLY the final refined article in markdown format with inline citations and Sources section."
+        ))
+        refinement_chat.append(user(
+            f"Original article:\n{current_article_clean}\n\n"
+            f"Critique analysis:\n{full_critique}\n\n"
+            f"Produce the refined article addressing these concerns."
+        ))
+
+        # Right panel: refined article (streaming)
+        right_display = "📝 REFINED ARTICLE\n"
+        right_display += "=" * 44 + "\n\n"
+        right_display += "⏳ Generating refined version...\n\n"
+        yield center_display, critique_analysis_display, right_display
+
+        refined_article = ""
+        for response, chunk in refinement_chat.stream():
+            if chunk.content:
+                refined_article += chunk.content
+                refined_display = "📝 REFINED ARTICLE\n"
+                refined_display += "=" * 44 + "\n\n"
+                refined_display += refined_article
+                yield center_display, critique_analysis_display, refined_display
+
+        # Update current article for iterative critiques
+        current_article_clean = refined_article
+
+        # Store refined article in history
+        final_article = f"📝 REFINED ARTICLE (Post-Critique)\n"
+        final_article += "=" * 44 + "\n\n"
+        final_article += f"__Epistemically refined through self-critique__\n\n---\n\n{refined_article}"
+        article_history.append(final_article)
+
+        # Final yield with complete versions
+        final_critique_display = "🔍 SELF-CRITIQUE ANALYSIS\n"
+        final_critique_display += "=" * 44 + "\n\n"
+        final_critique_display += full_critique + "\n\n"
+        final_critique_display += "✅ Critique complete! Refined article generated."
+
+        yield center_display, final_critique_display, refined_display
+
+    except Exception as e:
+        error_analysis = critique_analysis + f"\n\n❌ Error during critique: {str(e)}\n\nPlease try again."
+        yield center_display, error_analysis, ""
+
+
 def run_multi_agent_debate():
     """Run multi-agent debate on current article."""
     global current_article_clean, current_grounding_context, article_history, original_article
@@ -162,13 +272,21 @@ def run_multi_agent_debate():
     try:
         defender_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         defender_chat.append(system(
-            "You are the Defender agent in an epistemic debate. Your role is to identify and support "
-            "the strongest claims in the article. Provide evidence, reasoning, and citations from the "
-            "grounding context. Be rigorous but fair. Provide a concise defense (~200 words)."
+            "You are the Defender agent in an epistemic debate. Your role is to identify the strongest "
+            "epistemic qualities of the article: appropriate certainty language, balanced framing, "
+            "acknowledgment of limitations, and clear communication. Argue for what the article does well "
+            "in terms of epistemic integrity. Be rigorous but fair. Provide a concise defense (~200 words)."
         ))
         defender_chat.append(user(
-            f"Defend the key claims in this article:\n\n{current_article_clean}\n\nGrounding context:\n{current_grounding_context}"))
-        defender_response = defender_chat.sample().content.strip()
+            f"Defend the epistemic strengths of this article:\n\n{current_article_clean}"))
+        defender_result = defender_chat.sample()
+        defender_response = defender_result.content.strip()
+        print(f"[DEBUG] Defender usage: {defender_result.usage}")
+        defender_prompt = defender_result.usage.prompt_tokens
+        defender_completion = defender_result.usage.completion_tokens
+        defender_reasoning = defender_result.usage.reasoning_tokens
+        defender_cached = defender_result.usage.cached_prompt_text_tokens
+        print(f"[DEBUG] Defender - Prompt: {defender_prompt}, Completion: {defender_completion}, Reasoning: {defender_reasoning}, Cached: {defender_cached}")
 
         debate_transcript += f"{defender_response}\n\n\n"
         yield left_display, debate_transcript, ""
@@ -182,12 +300,21 @@ def run_multi_agent_debate():
         challenger_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         challenger_chat.append(system(
             "You are the Challenger agent in an epistemic debate. Your role is to critically examine "
-            "the article for weaknesses, overstatements, missing context, or unsupported claims. "
-            "Be aggressive but evidence-based. Point out specific issues. Provide a concise critique (~200 words)."
+            "the article for epistemic weaknesses: overstatements, unwarranted certainty, missing caveats, "
+            "one-sided framing, lack of epistemic humility, or unclear communication. Focus on how claims "
+            "are presented, not their factual accuracy. Be aggressive but fair. Point out specific issues. "
+            "Provide a concise critique (~200 words)."
         ))
         challenger_chat.append(user(
-            f"Challenge the claims in this article:\n\n{current_article_clean}\n\nGrounding context:\n{current_grounding_context}"))
-        challenger_response = challenger_chat.sample().content.strip()
+            f"Challenge the epistemic quality of this article:\n\n{current_article_clean}"))
+        challenger_result = challenger_chat.sample()
+        challenger_response = challenger_result.content.strip()
+        print(f"[DEBUG] Challenger usage: {challenger_result.usage}")
+        challenger_prompt = challenger_result.usage.prompt_tokens
+        challenger_completion = challenger_result.usage.completion_tokens
+        challenger_reasoning = challenger_result.usage.reasoning_tokens
+        challenger_cached = challenger_result.usage.cached_prompt_text_tokens
+        print(f"[DEBUG] Challenger - Prompt: {challenger_prompt}, Completion: {challenger_completion}, Reasoning: {challenger_reasoning}, Cached: {challenger_cached}")
 
         debate_transcript += f"{challenger_response}\n\n\n"
         yield left_display, debate_transcript, ""
@@ -218,12 +345,53 @@ Defender's arguments:
 Challenger's criticisms:
 {challenger_response}
 
-Grounding context:
-{current_grounding_context}
-
 Produce the final revised article."""))
 
-        revised_article = arbiter_chat.sample().content.strip()
+        arbiter_result = arbiter_chat.sample()
+        revised_article = arbiter_result.content.strip()
+        print(f"[DEBUG] Arbiter usage: {arbiter_result.usage}")
+        arbiter_prompt = arbiter_result.usage.prompt_tokens
+        arbiter_completion = arbiter_result.usage.completion_tokens
+        arbiter_reasoning = arbiter_result.usage.reasoning_tokens
+        arbiter_cached = arbiter_result.usage.cached_prompt_text_tokens
+        print(f"[DEBUG] Arbiter - Prompt: {arbiter_prompt}, Completion: {arbiter_completion}, Reasoning: {arbiter_reasoning}, Cached: {arbiter_cached}")
+
+        # Calculate total cost
+        # Total prompt tokens (some are cached at lower rate)
+        total_prompt_uncached = (defender_prompt - defender_cached) + (challenger_prompt - challenger_cached) + (arbiter_prompt - arbiter_cached)
+        total_prompt_cached = defender_cached + challenger_cached + arbiter_cached
+        total_completion = defender_completion + challenger_completion + arbiter_completion
+        total_reasoning = defender_reasoning + challenger_reasoning + arbiter_reasoning
+
+        # Cost calculation - TESTING DIFFERENT PRICING SCENARIOS
+        # Scenario 1: Reasoning tokens @ output rate ($0.05/1M)
+        cost_uncached_prompt_1 = total_prompt_uncached * 0.20 / 1_000_000
+        cost_cached_prompt_1 = total_prompt_cached * 0.05 / 1_000_000
+        cost_completion_1 = total_completion * 0.05 / 1_000_000
+        cost_reasoning_1 = total_reasoning * 0.05 / 1_000_000
+        total_cost_1 = cost_uncached_prompt_1 + cost_cached_prompt_1 + cost_completion_1 + cost_reasoning_1
+
+        # Scenario 2: Reasoning tokens @ input rate ($0.20/1M)
+        cost_reasoning_2 = total_reasoning * 0.20 / 1_000_000
+        total_cost_2 = cost_uncached_prompt_1 + cost_cached_prompt_1 + cost_completion_1 + cost_reasoning_2
+
+        # Scenario 3: Reasoning tokens @ input rate, NO caching benefit
+        total_prompt_all = total_prompt_uncached + total_prompt_cached
+        cost_prompt_no_cache = total_prompt_all * 0.20 / 1_000_000
+        total_cost_3 = cost_prompt_no_cache + cost_completion_1 + cost_reasoning_2
+
+        print(f"[DEBUG] COST BREAKDOWN:")
+        print(f"  Uncached prompt: {total_prompt_uncached} @ $0.20/1M = ${cost_uncached_prompt_1:.6f}")
+        print(f"  Cached prompt: {total_prompt_cached} @ $0.05/1M = ${cost_cached_prompt_1:.6f}")
+        print(f"  Completion: {total_completion} @ $0.05/1M = ${cost_completion_1:.6f}")
+        print(f"  Reasoning: {total_reasoning} tokens")
+        print(f"")
+        print(f"  Scenario 1 (reasoning @ $0.05/1M): ${total_cost_1:.6f}")
+        print(f"  Scenario 2 (reasoning @ $0.20/1M): ${total_cost_2:.6f}")
+        print(f"  Scenario 3 (reasoning @ $0.20/1M, no cache): ${total_cost_3:.6f}")
+        print(f"")
+        print(f"  xAI Console shows: $0.0016 (user reported)")
+        print(f"  Closest match: Scenario {'2' if abs(total_cost_2 - 0.0016) < abs(total_cost_3 - 0.0016) else '3'}")
 
         debate_transcript += "✅ Debate complete! Revised article generated.\n\n"
         debate_transcript += "**Key improvements:**\n"
@@ -1428,6 +1596,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         elif selected_tool == "Multi-Agent Debate":
             # Run debate
             yield from run_multi_agent_debate()
+        elif selected_tool == "Self-Critique":
+            # Run self-critique
+            yield from run_self_critique()
         else:
             # Placeholder for other tools
             error_msg = f"⚠️ {selected_tool} not yet implemented."
