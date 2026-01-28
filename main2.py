@@ -279,16 +279,18 @@ def run_multi_agent_debate():
         ))
         defender_chat.append(user(
             f"Defend the epistemic strengths of this article:\n\n{current_article_clean}"))
-        defender_result = defender_chat.sample()
-        defender_response = defender_result.content.strip()
-        print(f"[DEBUG] Defender usage: {defender_result.usage}")
-        defender_prompt = defender_result.usage.prompt_tokens
-        defender_completion = defender_result.usage.completion_tokens
-        defender_reasoning = defender_result.usage.reasoning_tokens
-        defender_cached = defender_result.usage.cached_prompt_text_tokens
-        print(f"[DEBUG] Defender - Prompt: {defender_prompt}, Completion: {defender_completion}, Reasoning: {defender_reasoning}, Cached: {defender_cached}")
 
-        debate_transcript += f"{defender_response}\n\n\n"
+        # Stream Defender response
+        defender_response = ""
+        debate_base = "🎭 MULTI-AGENT DEBATE\n" + "=" * 44 + "\n\n⏳ Initializing debate agents...\n\n🟢 DEFENDER AGENT\n" + "-" * 44 + "\n"
+
+        for response, chunk in defender_chat.stream():
+            if chunk.content:
+                defender_response += chunk.content
+                streaming_transcript = debate_base + defender_response
+                yield left_display, streaming_transcript, ""
+
+        debate_transcript = debate_base + f"{defender_response}\n\n\n"
         yield left_display, debate_transcript, ""
 
         # Agent 2: Challenger
@@ -307,16 +309,18 @@ def run_multi_agent_debate():
         ))
         challenger_chat.append(user(
             f"Challenge the epistemic quality of this article:\n\n{current_article_clean}"))
-        challenger_result = challenger_chat.sample()
-        challenger_response = challenger_result.content.strip()
-        print(f"[DEBUG] Challenger usage: {challenger_result.usage}")
-        challenger_prompt = challenger_result.usage.prompt_tokens
-        challenger_completion = challenger_result.usage.completion_tokens
-        challenger_reasoning = challenger_result.usage.reasoning_tokens
-        challenger_cached = challenger_result.usage.cached_prompt_text_tokens
-        print(f"[DEBUG] Challenger - Prompt: {challenger_prompt}, Completion: {challenger_completion}, Reasoning: {challenger_reasoning}, Cached: {challenger_cached}")
 
-        debate_transcript += f"{challenger_response}\n\n\n"
+        # Stream Challenger response
+        challenger_response = ""
+        challenger_base = debate_transcript + "🔴 CHALLENGER AGENT\n" + "-" * 44 + "\n"
+
+        for response, chunk in challenger_chat.stream():
+            if chunk.content:
+                challenger_response += chunk.content
+                streaming_transcript = challenger_base + challenger_response
+                yield left_display, streaming_transcript, ""
+
+        debate_transcript = challenger_base + f"{challenger_response}\n\n\n"
         yield left_display, debate_transcript, ""
 
         # Agent 3: Arbiter (produces revised article)
@@ -347,62 +351,27 @@ Challenger's criticisms:
 
 Produce the final revised article."""))
 
-        arbiter_result = arbiter_chat.sample()
-        revised_article = arbiter_result.content.strip()
-        print(f"[DEBUG] Arbiter usage: {arbiter_result.usage}")
-        arbiter_prompt = arbiter_result.usage.prompt_tokens
-        arbiter_completion = arbiter_result.usage.completion_tokens
-        arbiter_reasoning = arbiter_result.usage.reasoning_tokens
-        arbiter_cached = arbiter_result.usage.cached_prompt_text_tokens
-        print(f"[DEBUG] Arbiter - Prompt: {arbiter_prompt}, Completion: {arbiter_completion}, Reasoning: {arbiter_reasoning}, Cached: {arbiter_cached}")
+        # Stream Arbiter's revised article to RIGHT panel
+        revised_article = ""
+        arbiter_header = "📝 REVISED ARTICLE\n" + "=" * 44 + "\n\n"
 
-        # Calculate total cost
-        # Total prompt tokens (some are cached at lower rate)
-        total_prompt_uncached = (defender_prompt - defender_cached) + (challenger_prompt - challenger_cached) + (arbiter_prompt - arbiter_cached)
-        total_prompt_cached = defender_cached + challenger_cached + arbiter_cached
-        total_completion = defender_completion + challenger_completion + arbiter_completion
-        total_reasoning = defender_reasoning + challenger_reasoning + arbiter_reasoning
+        for response, chunk in arbiter_chat.stream():
+            if chunk.content:
+                revised_article += chunk.content
+                streaming_right = arbiter_header + revised_article
+                yield left_display, debate_transcript, streaming_right
 
-        # Cost calculation - TESTING DIFFERENT PRICING SCENARIOS
-        # Scenario 1: Reasoning tokens @ output rate ($0.05/1M)
-        cost_uncached_prompt_1 = total_prompt_uncached * 0.20 / 1_000_000
-        cost_cached_prompt_1 = total_prompt_cached * 0.05 / 1_000_000
-        cost_completion_1 = total_completion * 0.05 / 1_000_000
-        cost_reasoning_1 = total_reasoning * 0.05 / 1_000_000
-        total_cost_1 = cost_uncached_prompt_1 + cost_cached_prompt_1 + cost_completion_1 + cost_reasoning_1
-
-        # Scenario 2: Reasoning tokens @ input rate ($0.20/1M)
-        cost_reasoning_2 = total_reasoning * 0.20 / 1_000_000
-        total_cost_2 = cost_uncached_prompt_1 + cost_cached_prompt_1 + cost_completion_1 + cost_reasoning_2
-
-        # Scenario 3: Reasoning tokens @ input rate, NO caching benefit
-        total_prompt_all = total_prompt_uncached + total_prompt_cached
-        cost_prompt_no_cache = total_prompt_all * 0.20 / 1_000_000
-        total_cost_3 = cost_prompt_no_cache + cost_completion_1 + cost_reasoning_2
-
-        print(f"[DEBUG] COST BREAKDOWN:")
-        print(f"  Uncached prompt: {total_prompt_uncached} @ $0.20/1M = ${cost_uncached_prompt_1:.6f}")
-        print(f"  Cached prompt: {total_prompt_cached} @ $0.05/1M = ${cost_cached_prompt_1:.6f}")
-        print(f"  Completion: {total_completion} @ $0.05/1M = ${cost_completion_1:.6f}")
-        print(f"  Reasoning: {total_reasoning} tokens")
-        print(f"")
-        print(f"  Scenario 1 (reasoning @ $0.05/1M): ${total_cost_1:.6f}")
-        print(f"  Scenario 2 (reasoning @ $0.20/1M): ${total_cost_2:.6f}")
-        print(f"  Scenario 3 (reasoning @ $0.20/1M, no cache): ${total_cost_3:.6f}")
-        print(f"")
-        print(f"  xAI Console shows: $0.0016 (user reported)")
-        print(f"  Closest match: Scenario {'2' if abs(total_cost_2 - 0.0016) < abs(total_cost_3 - 0.0016) else '3'}")
-
+        # Add completion message to debate transcript
+        debate_transcript += "⚖️ ARBITER AGENT\n"
+        debate_transcript += "-" * 44 + "\n"
         debate_transcript += "✅ Debate complete! Revised article generated.\n\n"
         debate_transcript += "**Key improvements:**\n"
         debate_transcript += "- Incorporated Defender's supporting evidence\n"
         debate_transcript += "- Addressed Challenger's valid criticisms\n"
         debate_transcript += "- Added epistemic qualifiers where appropriate\n"
 
-        # Right panel: revised article
-        right_display = "📝 REVISED ARTICLE\n"
-        right_display += "=" * 44 + "\n\n"
-        right_display += revised_article
+        # Right panel: revised article (already streamed, just format final version)
+        right_display = arbiter_header + revised_article
 
         # Update current article to the revision for iterative debates
         current_article_clean = revised_article
@@ -647,8 +616,54 @@ Format the article in clean markdown."""
 
         chat.append(user(prompt))
 
-        response = chat.sample()
-        article_content = response.content.strip()
+        # Stream the article generation
+        article_content = ""
+
+        # Build sources display for right panel during streaming
+        streaming_sources_display = ""
+        if len(current_sources) == 2:
+            streaming_sources_display = "📚 WIKIPEDIA & ARXIV ARTICLES\n"
+            streaming_sources_display += "=" * 44 + "\n\n"
+            streaming_sources_display += "WIKIPEDIA:\n"
+            streaming_sources_display += "-" * 44 + "\n\n"
+            streaming_sources_display += f"**{current_sources[0]['name']}**\n\n"
+            streaming_sources_display += f"Source: {current_sources[0]['url']}\n\n"
+            streaming_sources_display += f"{current_sources[0]['content'][:2500]}\n\n\n"
+            streaming_sources_display += "ARXIV:\n"
+            streaming_sources_display += "-" * 44 + "\n\n"
+            streaming_sources_display += f"**{current_sources[1]['name']}**\n\n"
+            streaming_sources_display += f"Authors: {current_sources[1]['authors']}\n\n"
+            streaming_sources_display += f"Source: {current_sources[1]['url']}\n\n"
+            streaming_sources_display += f"{current_sources[1]['content'][:2500]}"
+        elif len(current_sources) == 1:
+            source = current_sources[0]
+            if source['type'] == 'Wikipedia':
+                streaming_sources_display = "📚 WIKIPEDIA ARTICLE\n"
+                streaming_sources_display += "=" * 44 + "\n\n"
+                streaming_sources_display += f"**{source['name']}**\n\n"
+                streaming_sources_display += f"Source: {source['url']}\n\n"
+                streaming_sources_display += "---\n\n"
+                streaming_sources_display += f"{source['content'][:2500]}"
+            else:
+                streaming_sources_display = "📚 ARXIV ARTICLE\n"
+                streaming_sources_display += "=" * 44 + "\n\n"
+                streaming_sources_display += f"**{source['name']}**\n\n"
+                streaming_sources_display += f"Authors: {source['authors']}\n\n"
+                streaming_sources_display += f"Source: {source['url']}\n\n"
+                streaming_sources_display += "---\n\n"
+                streaming_sources_display += f"{source['content'][:2500]}"
+
+        for response, chunk in chat.stream():
+            if chunk.content:
+                article_content += chunk.content
+
+                # Build streaming article display
+                streaming_article = "📝 YOUR ARTICLE\n"
+                streaming_article += "=" * 44 + "\n\n"
+                streaming_article += f"__{source_note}__\n\n---\n\n{article_content}"
+
+                # Yield: center (streaming article), left (status log), right (sources)
+                yield streaming_article, status_log, streaming_sources_display
 
         # Add header and source note at the top
         final_article = f"📝 YOUR ARTICLE\n"
@@ -666,47 +681,8 @@ Format the article in clean markdown."""
         # Update status log to show completion
         status_log += "✅ Article generation complete!\n\n"
 
-        # Rebuild sources display for final yield
-        final_sources_display = ""
-        if len(current_sources) == 2:
-            # Both Wikipedia and Semantic Scholar
-            final_sources_display = "📚 WIKIPEDIA & ARXIV ARTICLES\n"
-            final_sources_display += "=" * 44 + "\n\n"
-
-            final_sources_display += "WIKIPEDIA:\n"
-            final_sources_display += "-" * 44 + "\n\n"
-            final_sources_display += f"**{current_sources[0]['name']}**\n\n"
-            final_sources_display += f"Source: {current_sources[0]['url']}\n\n"
-            final_sources_display += f"{current_sources[0]['content'][:2500]}\n\n\n"
-
-            final_sources_display += "ARXIV:\n"
-            final_sources_display += "-" * 44 + "\n\n"
-            final_sources_display += f"**{current_sources[1]['name']}**\n\n"
-            final_sources_display += f"Authors: {current_sources[1]['authors']}\n\n"
-            final_sources_display += f"Source: {current_sources[1]['url']}\n\n"
-            final_sources_display += f"{current_sources[1]['content'][:2500]}"
-
-        elif len(current_sources) == 1:
-            # Single source
-            source = current_sources[0]
-            if source['type'] == 'Wikipedia':
-                final_sources_display = "📚 WIKIPEDIA ARTICLE\n"
-                final_sources_display += "=" * 44 + "\n\n"
-                final_sources_display += f"**{source['name']}**\n\n"
-                final_sources_display += f"Source: {source['url']}\n\n"
-                final_sources_display += "---\n\n"
-                final_sources_display += f"{source['content'][:2500]}"
-            else:  # Semantic Scholar
-                final_sources_display = "📚 ARXIV ARTICLE\n"
-                final_sources_display += "=" * 44 + "\n\n"
-                final_sources_display += f"**{source['name']}**\n\n"
-                final_sources_display += f"Authors: {source['authors']}\n\n"
-                final_sources_display += f"Source: {source['url']}\n\n"
-                final_sources_display += "---\n\n"
-                final_sources_display += f"{source['content'][:2500]}"
-
-        # Yield: center (article), left (status), right (sources)
-        yield final_article, status_log, final_sources_display
+        # Yield: center (article), left (status), right (sources) - reuse streaming_sources_display
+        yield final_article, status_log, streaming_sources_display
 
     except Exception as e:
         status_log += f"❌ Error generating article: {str(e)}\n\nPlease try again.\n"
