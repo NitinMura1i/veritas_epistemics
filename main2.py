@@ -768,29 +768,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             height: 0px !important;
             clear: both !important;
         }
-        .chat-input-container {
-            position: relative;
-        }
-        .chat-input-container .gr-textbox {
-            border-radius: 12px !important;
-            padding: 14px 70px 14px 18px !important;
-            background-color: #111111 !important;
-            color: #e5e7eb !important;
-            border: 1px solid #444444 !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-        }
-        .chat-input-container .gr-textbox textarea {
-            resize: none !important;
-            font-size: 1.1rem !important;
-            font-family: monospace !important;
-            line-height: 1.5 !important;
-        }
-        .chat-input-container .gr-textbox textarea::placeholder {
-            color: #aaaaaa !important;
-            opacity: 0.8 !important;
-            font-size: 1rem !important;
-            font-family: monospace !important;
-        }
         #topic-input-box {
             font-family: monospace !important;  /* change to any font you want */
             font-size: 1.1rem !important;  /* optional: keep or adjust size */
@@ -803,27 +780,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         #topic-input-box::placeholder {
             font-family: monospace !important;  /* placeholder text */
             font-size: 0.7rem !important;  /* your existing small size */
-        }
-        .send-btn {
-            position: absolute !important;
-            bottom: 3px !important;
-            right: 3px !important;
-            width: 32px !important;
-            height: 32px !important;
-            border-radius: 8px !important;
-            background-color: #6366f1 !important;
-            color: white !important;
-            border: none !important;
-            cursor: pointer !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            font-size: 1.6rem !important;
-            z-index: 10 !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
-        }
-        .send-btn:hover {
-            background-color: #4f46e5 !important;
         }
 
         /* Action button styling */
@@ -1279,12 +1235,12 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         #version-history-btn {
             background-color: #0f0f0f !important;
-            border: 2px solid #6366f1 !important;
-            color: #6366f1 !important;
+            border: 1.5px solid #e5e7eb !important;
+            color: #e5e7eb !important;
             border-radius: 8px !important;
             font-family: monospace !important;
             font-size: 0.9rem !important;
-            padding: 6px 16px !important;
+            padding: 8px 10px !important;
             height: 38px !important;
             cursor: pointer !important;
             transition: all 0.3s ease !important;
@@ -1292,8 +1248,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         #version-history-btn:hover {
             background-color: #1a1a1a !important;
-            border-color: #4f46e5 !important;
-            color: #4f46e5 !important;
+            border-color: #6366f1 !important;
+            color: #6366f1 !important;
         }
     </style>
     <script>
@@ -1404,22 +1360,14 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             container=False
         )
 
-        # Chat-style input with send arrow
-        with gr.Column(elem_classes=["chat-input-container"], scale=1):
-            topic_input = gr.Textbox(
-                placeholder="Enter a topic of your choice. e.g. Machine Learning, Astrology, Global Warming",
-                lines=1,
-                container=False,
-                elem_id="topic-input-box"
-            )
-
-            send_arrow = gr.Button(
-                value="➤",
-                variant="primary",
-                elem_id="send-arrow-btn",
-                elem_classes=["send-btn"],
-                size="sm"
-            )
+        # Topic input (no button inside - action button handles execution)
+        topic_input = gr.Textbox(
+            placeholder="Enter a topic of your choice. e.g. Machine Learning, Astrology, Global Warming",
+            lines=1,
+            container=False,
+            elem_id="topic-input-box",
+            scale=1
+        )
 
         # Dynamic action button
         action_button = gr.Button(
@@ -1432,10 +1380,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Version History button
         version_history_btn = gr.Button(
-            value="History",
+            value="⌛",
             variant="secondary",
             scale=0,
-            min_width=100,
+            min_width=55,
             elem_id="version-history-btn"
         )
 
@@ -1483,35 +1431,26 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     version_state = gr.HTML(value="", visible=False,
                             elem_id="version-state-holder")
 
-    # Wire up the send button
-    send_arrow.click(
-        fn=generate_initial_article,
-        inputs=[topic_input],
-        outputs=[article_display, left_panel, right_panel]
-    ).then(
-        fn=update_version_history,
-        inputs=[article_display, left_panel, right_panel],
-        outputs=[version_state]
-    ).then(
-        fn=None,
-        inputs=[version_state],
-        js="""(versionHtml) => {
-            setTimeout(() => {
-                const textareas = document.querySelectorAll('textarea');
-                textareas.forEach(t => { t.scrollTop = 0; });
-            }, 100);
+    # Route action button to correct function based on dropdown
+    def execute_action(selected_tool, topic):
+        if selected_tool == "Article Generation":
+            # Generate article
+            yield from generate_initial_article(topic)
+        elif selected_tool == "Multi-Agent Debate":
+            # Run debate
+            yield from run_multi_agent_debate()
+        elif selected_tool == "Self-Critique":
+            # Run self-critique
+            yield from run_self_critique()
+        else:
+            # Placeholder for other tools
+            error_msg = f"⚠️ {selected_tool} not yet implemented."
+            yield "", error_msg, ""
 
-            const versionList = document.getElementById('version-list');
-            if (versionList && versionHtml) {
-                versionList.innerHTML = versionHtml;
-            }
-        }"""
-    )
-
-    # Also trigger on Enter key in topic input
+    # Trigger action on Enter key in topic input (same behavior as action button)
     topic_input.submit(
-        fn=generate_initial_article,
-        inputs=[topic_input],
+        fn=execute_action,
+        inputs=[epistemic_dropdown, topic_input],
         outputs=[article_display, left_panel, right_panel]
     ).then(
         fn=update_version_history,
@@ -1563,22 +1502,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         inputs=[epistemic_dropdown],
         outputs=[action_button, topic_input]
     )
-
-    # Route action button to correct function based on dropdown
-    def execute_action(selected_tool, topic):
-        if selected_tool == "Article Generation":
-            # Generate article
-            yield from generate_initial_article(topic)
-        elif selected_tool == "Multi-Agent Debate":
-            # Run debate
-            yield from run_multi_agent_debate()
-        elif selected_tool == "Self-Critique":
-            # Run self-critique
-            yield from run_self_critique()
-        else:
-            # Placeholder for other tools
-            error_msg = f"⚠️ {selected_tool} not yet implemented."
-            yield "", error_msg, ""
 
     action_button.click(
         fn=execute_action,
