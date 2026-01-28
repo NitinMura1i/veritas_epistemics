@@ -1519,6 +1519,18 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
             right_placeholder = "✨ REFINED ARTICLE\n" + "=" * 42 + "\n\nThis panel displays the epistemically refined version of your article:\n\n- Improved certainty language\n- Added qualifiers where needed\n- Balanced framing\n- Clearer communication\n- Enhanced epistemic integrity\n\nThe refined article will appear here after critique completes."
 
+        elif selected_tool == "Multi-Agent Debate":
+            left_placeholder = "🎭 DEBATE TRANSCRIPT\n" + "=" * 42 + "\n\nThis panel displays the multi-agent debate transcript:\n\n- Defender: Argues for epistemic strengths\n- Challenger: Identifies epistemic weaknesses\n- Arbiter: Synthesizes debate into improvements\n\nThe debate process analyzes the article from multiple perspectives to produce a more balanced revision.\n\nClick 'Start Debate' to begin the multi-agent debate!"
+
+            # If article exists, show it with the "ORIGINAL ARTICLE" header
+            if current_article_clean:
+                center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 42 + "\n\n" + current_article_clean
+            else:
+                center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 42 + \
+                    "\n\nYour current article will be displayed here during the debate.\n\nThree agents will analyze its epistemic quality through structured debate."
+
+            right_placeholder = "📝 REVISED ARTICLE\n" + "=" * 42 + "\n\nThis panel displays the revised article produced by the Arbiter:\n\n- Incorporates Defender's supporting evidence\n- Addresses Challenger's valid criticisms\n- Adds epistemic qualifiers where appropriate\n- Balances competing perspectives\n\nThe revised article will appear here after debate completes."
+
         else:
             # Default placeholders for other tools
             left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + \
