@@ -157,17 +157,22 @@ def run_self_critique():
         # Step 1: Generate critique analysis with streaming
         critique_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         critique_chat.append(system(
-            "You are a meticulous epistemic critic. Think out loud as you read through the article, "
-            "sharing your immediate reactions and reasoning as you notice issues.\n\n"
-            "CRITICAL CONSTRAINTS:\n"
+            "You are a professional epistemic analyst conducting a critical evaluation of the article. "
+            "Provide a structured analysis identifying weaknesses in epistemic quality.\n\n"
+            "CONSTRAINTS:\n"
             "- Maximum 300 words total\n"
-            "- Focus on 2-3 most critical issues\n"
-            "- Write naturally, as if talking through your observations\n\n"
-            "Example style:\n"
-            "\"Hmm, looking at this claim about X... wait, the source doesn't actually say that. "
-            "This seems like an overstatement because... What bothers me is... "
-            "Better approach would be...\"\n\n"
-            "Focus on: overstatements, missing context, lack of epistemic humility, one-sided framing."
+            "- Identify 2-3 most critical issues\n"
+            "- Use formal, professional language\n"
+            "- Be direct and specific in identifying problems\n\n"
+            "Format your analysis as numbered sections (1, 2, 3...) addressing the most critical issues found. "
+            "Consider evaluating:\n"
+            "- Source reliability and diversification\n"
+            "- Claims requiring qualification or additional context\n"
+            "- Potential biases or one-sided framing\n"
+            "- Missing caveats or epistemic humility\n"
+            "- Overstatements or unwarranted certainty\n\n"
+            "Use clear, declarative statements rather than casual observations. "
+            "Number your sections sequentially (1, 2, 3) based on the issues you identify."
         ))
         critique_chat.append(user(
             f"Analyze this article for epistemic issues:\n\n{current_article_clean}"
@@ -239,7 +244,8 @@ def run_self_critique():
         yield center_display, final_critique_display, refined_display
 
     except Exception as e:
-        error_analysis = critique_analysis + f"\n\n❌ Error during critique: {str(e)}\n\nPlease try again."
+        error_analysis = critique_analysis + \
+            f"\n\n❌ Error during critique: {str(e)}\n\nPlease try again."
         yield center_display, error_analysis, ""
 
 
@@ -282,7 +288,8 @@ def run_multi_agent_debate():
 
         # Stream Defender response
         defender_response = ""
-        debate_base = "🎭 MULTI-AGENT DEBATE\n" + "=" * 44 + "\n\n⏳ Initializing debate agents...\n\n🟢 DEFENDER AGENT\n" + "-" * 44 + "\n"
+        debate_base = "🎭 MULTI-AGENT DEBATE\n" + "=" * 44 + \
+            "\n\n⏳ Initializing debate agents...\n\n🟢 DEFENDER AGENT\n" + "-" * 44 + "\n"
 
         for response, chunk in defender_chat.stream():
             if chunk.content:
@@ -1492,15 +1499,47 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         # Check if article exists for epistemic tools
         button_disabled = topic_disabled and not current_article_clean
 
+        # Set placeholder content for panels based on selected tool
+        if selected_tool == "Article Generation":
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Wikipedia search progress\n- arXiv paper search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the button to begin!"
+            center_placeholder = "📝 YOUR ARTICLE\n" + "=" * 42 + \
+                "\n\nYour generated article will appear here.\n\nIterate it in order to get as close to the truth as you can!"
+            right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 42 + \
+                "\n\nThis panel displays source articles used to generate your article:\n\n- Wikipedia articles (general knowledge)\n- arXiv papers (academic research)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation."
+
+        elif selected_tool == "Self-Critique":
+            left_placeholder = "🔍 CRITIQUE ANALYSIS\n" + "=" * 42 + "\n\nThis panel displays the critical analysis of your article:\n\n- Epistemic quality assessment\n- Identification of overstatements\n- Analysis of certainty language\n- Detection of missing qualifiers\n- Suggestions for improvement\n\nClick 'Critique Article' to begin the self-critique process!"
+
+            # If article exists, show it with the "ORIGINAL ARTICLE" header
+            if current_article_clean:
+                center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 42 + "\n\n" + current_article_clean
+            else:
+                center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 42 + \
+                    "\n\nYour current article will be displayed here during the critique process.\n\nThe AI will analyze its epistemic quality and suggest improvements."
+
+            right_placeholder = "✨ REFINED ARTICLE\n" + "=" * 42 + "\n\nThis panel displays the epistemically refined version of your article:\n\n- Improved certainty language\n- Added qualifiers where needed\n- Balanced framing\n- Clearer communication\n- Enhanced epistemic integrity\n\nThe refined article will appear here after critique completes."
+
+        else:
+            # Default placeholders for other tools
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + \
+                "\n\nProcess information will appear here."
+            center_placeholder = "📝 YOUR ARTICLE\n" + "=" * \
+                42 + "\n\nYour article content will appear here."
+            right_placeholder = "📚 OUTPUT\n" + "=" * 42 + "\n\nResults will appear here."
+
         return (
             gr.update(value=button_text, interactive=not button_disabled),
-            gr.update(interactive=not topic_disabled)
+            gr.update(interactive=not topic_disabled),
+            gr.update(value=center_placeholder),
+            gr.update(value=left_placeholder),
+            gr.update(value=right_placeholder)
         )
 
     epistemic_dropdown.change(
         fn=update_ui_state,
         inputs=[epistemic_dropdown],
-        outputs=[action_button, topic_input]
+        outputs=[action_button, topic_input,
+                 article_display, left_panel, right_panel]
     )
 
     action_button.click(
