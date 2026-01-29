@@ -249,6 +249,202 @@ def run_self_critique():
         yield center_display, error_analysis, ""
 
 
+def run_user_feedback(user_feedback):
+    """Process user feedback on current article with validation and critical evaluation."""
+    global current_article_clean, current_grounding_context, article_history, original_article
+
+    if not current_article_clean:
+        error_msg = "⚠️ No article available. Please generate an article first."
+        center_display = "📝 CURRENT ARTICLE\n" + "=" * 44 + "\n\n" + \
+            "No article available. Generate an article before providing feedback."
+        rejection_display = "❌ FEEDBACK REJECTED\n" + "=" * 44 + "\n\n" + \
+            "No article available to provide feedback on.\n\nGenerate an article first using Article Generation."
+        return center_display, error_msg, rejection_display
+
+    # Store original article for comparison
+    original_article_text = current_article_clean
+
+    # Center panel: current article (read-only reference)
+    center_display = "📝 CURRENT ARTICLE\n"
+    center_display += "=" * 44 + "\n\n"
+    center_display += current_article_clean
+
+    # Left panel: show processing message temporarily
+    processing_msg = "⏳ Processing your feedback...\n\nValidating suggestions against source material..."
+
+    # Right panel: placeholder during processing
+    right_placeholder = "📋 CHANGELOG\n" + "=" * 44 + "\n\n⏳ Processing...\n\nChangelog will appear here."
+
+    yield center_display, processing_msg, right_placeholder
+
+    try:
+        # Step 1: Validate and analyze user feedback
+        validation_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+        validation_chat.append(system(
+            "You are a feedback validation agent. Your task is to analyze user feedback about an article "
+            "and determine if it contains actionable, substantive suggestions.\n\n"
+            "Feedback is considered VALID if it:\n"
+            "- Relates to the article's content, structure, or epistemic quality\n"
+            "- Provides specific suggestions or identifies specific issues\n"
+            "- Is coherent and understandable\n\n"
+            "Feedback is considered INVALID if it:\n"
+            "- Is empty, too short (< 10 characters), or pure gibberish\n"
+            "- Is completely unrelated to the article\n"
+            "- Contains no actionable suggestions\n\n"
+            "If VALID: Identify and number each distinct suggestion (1, 2, 3, etc.)\n"
+            "If INVALID: Explain why and provide guidance on what constitutes good feedback.\n\n"
+            "Format your response as:\n"
+            "VALIDATION: [VALID or INVALID]\n"
+            "REASON: [Brief explanation]\n"
+            "SUGGESTIONS: [If valid, numbered list of extracted suggestions]"
+        ))
+        validation_chat.append(user(
+            f"Article:\n{current_article_clean}\n\n"
+            f"User feedback:\n{user_feedback}\n\n"
+            f"Validate this feedback and extract actionable suggestions."
+        ))
+
+        # Get validation result
+        validation_response = ""
+        for response, chunk in validation_chat.stream():
+            if chunk.content:
+                validation_response += chunk.content
+
+        # Check if feedback is valid
+        is_valid = "VALIDATION: VALID" in validation_response
+
+        if not is_valid:
+            # Feedback rejected - keep user's feedback in left panel (editable), put rejection in right panel
+            rejection_display = "❌ FEEDBACK REJECTED\n"
+            rejection_display += "=" * 44 + "\n\n"
+            rejection_display += f"{validation_response}\n\n"
+            rejection_display += "---\n\n"
+            rejection_display += "💡 Tips for good feedback:\n\n"
+            rejection_display += "- Reference specific claims or sections\n"
+            rejection_display += "- Suggest concrete improvements\n"
+            rejection_display += "- Focus on epistemic quality (certainty language, sources, framing)\n"
+            rejection_display += "- Be clear and specific\n\n"
+            rejection_display += "Edit your feedback in the left panel and try again."
+
+            # Keep user's original feedback in left panel (still editable)
+            yield center_display, user_feedback, rejection_display
+            return
+
+        # Step 2: Feedback is valid - evaluate suggestions against sources
+        evaluation_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+        evaluation_chat.append(system(
+            "You are an epistemic evaluation agent. Analyze user feedback suggestions and determine which ones "
+            "should be incorporated into the article revision.\n\n"
+            "For each suggestion:\n"
+            "- Evaluate it against the source material and epistemic standards\n"
+            "- Mark it as: ✓ (incorporate), ⚠️ (partially valid - modify), or ✗ (reject)\n"
+            "- Provide brief reasoning\n\n"
+            "Use this format:\n"
+            "SUGGESTION 1: [User's suggestion]\n"
+            "DECISION: [✓/⚠️/✗]\n"
+            "REASONING: [Why this decision was made]\n\n"
+            "Be critical but fair. Accept valid improvements, push back on unsupported claims, "
+            "and modify suggestions to align with epistemic integrity."
+        ))
+        evaluation_chat.append(user(
+            f"Article:\n{current_article_clean}\n\n"
+            f"Source context:\n{current_grounding_context}\n\n"
+            f"User feedback:\n{user_feedback}\n\n"
+            f"Validation analysis:\n{validation_response}\n\n"
+            f"Evaluate each suggestion and determine which should be incorporated."
+        ))
+
+        # Get evaluation result (non-streaming for changelog generation)
+        evaluation_result = ""
+        for response, chunk in evaluation_chat.stream():
+            if chunk.content:
+                evaluation_result += chunk.content
+
+        # Step 3: Generate revised article incorporating valid feedback
+        revision_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+        revision_chat.append(system(
+            "You are revising an article based on evaluated user feedback. "
+            "Incorporate suggestions marked with ✓ (fully), suggestions marked with ⚠️ (with modifications), "
+            "and ignore suggestions marked with ✗.\n\n"
+            "Maintain:\n"
+            "- Factual accuracy and source alignment\n"
+            "- Epistemic integrity\n"
+            "- Same structure and ~300 word length\n"
+            "- Inline citations and Sources section\n\n"
+            "Output ONLY the final revised article in markdown format."
+        ))
+        revision_chat.append(user(
+            f"Original article:\n{original_article_text}\n\n"
+            f"Feedback evaluation:\n{evaluation_result}\n\n"
+            f"Source context:\n{current_grounding_context}\n\n"
+            f"Produce the revised article incorporating the approved suggestions."
+        ))
+
+        # Stream revised article to CENTER panel
+        revised_article = ""
+        revision_header = "📝 CURRENT ARTICLE\n" + "=" * 44 + "\n\n"
+
+        for response, chunk in revision_chat.stream():
+            if chunk.content:
+                revised_article += chunk.content
+                streaming_center = revision_header + revised_article
+                yield streaming_center, processing_msg, right_placeholder
+
+        # Step 4: Generate changelog showing what changed
+        changelog_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+        changelog_chat.append(system(
+            "You are generating a changelog that shows what changed in the article based on user feedback.\n\n"
+            "Create a clear, structured changelog with these sections:\n"
+            "✓ ACCEPTED - Suggestions that were fully incorporated\n"
+            "⚠️ PARTIALLY ACCEPTED - Suggestions that were modified before incorporating\n"
+            "✗ REJECTED - Suggestions that were not incorporated\n\n"
+            "For each item, include:\n"
+            "- The user's original feedback/suggestion\n"
+            "- What actually changed in the article (be specific)\n"
+            "- Brief reasoning for the decision\n\n"
+            "Keep it concise but informative. Use clear formatting with bullet points or numbered lists."
+        ))
+        changelog_chat.append(user(
+            f"Original article:\n{original_article_text}\n\n"
+            f"Revised article:\n{revised_article}\n\n"
+            f"User feedback:\n{user_feedback}\n\n"
+            f"Evaluation:\n{evaluation_result}\n\n"
+            f"Generate a changelog showing what changed and why."
+        ))
+
+        # Stream changelog to RIGHT panel
+        changelog = ""
+        changelog_header = "📋 CHANGELOG\n" + "=" * 44 + "\n\n"
+
+        for response, chunk in changelog_chat.stream():
+            if chunk.content:
+                changelog += chunk.content
+                streaming_changelog = changelog_header + changelog
+                final_center = revision_header + revised_article
+                yield final_center, processing_msg, streaming_changelog
+
+        # Update current article
+        current_article_clean = revised_article
+
+        # Store in history
+        final_article = f"📝 REVISED ARTICLE (User Feedback)\n"
+        final_article += "=" * 44 + "\n\n"
+        final_article += f"__Revised based on user feedback__\n\n---\n\n{revised_article}"
+        article_history.append(final_article)
+
+        # Final display - use placeholder for "ready for next round" message
+        final_center = revision_header + revised_article
+        final_changelog = changelog_header + changelog
+
+        # Return with empty value and placeholder for next round
+        # Need to return a dict with both value and placeholder
+        yield final_center, gr.update(value="", placeholder="✅ Feedback processed! Article updated.\n\nEnter new feedback to continue refining..."), final_changelog
+
+    except Exception as e:
+        error_display = f"❌ Error processing feedback: {str(e)}\n\nPlease try again."
+        yield center_display, user_feedback, error_display
+
+
 def run_multi_agent_debate():
     """Run multi-agent debate on current article."""
     global current_article_clean, current_grounding_context, article_history, original_article
@@ -1439,7 +1635,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                             elem_id="version-state-holder")
 
     # Route action button to correct function based on dropdown
-    def execute_action(selected_tool, topic):
+    def execute_action(selected_tool, topic, user_feedback):
         if selected_tool == "Article Generation":
             # Generate article
             yield from generate_initial_article(topic)
@@ -1449,6 +1645,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         elif selected_tool == "Self-Critique":
             # Run self-critique
             yield from run_self_critique()
+        elif selected_tool == "User Feedback":
+            # Process user feedback
+            yield from run_user_feedback(user_feedback)
         else:
             # Placeholder for other tools
             error_msg = f"⚠️ {selected_tool} not yet implemented."
@@ -1457,7 +1656,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     # Trigger action on Enter key in topic input (same behavior as action button)
     topic_input.submit(
         fn=execute_action,
-        inputs=[epistemic_dropdown, topic_input],
+        inputs=[epistemic_dropdown, topic_input, left_panel],
         outputs=[article_display, left_panel, right_panel]
     ).then(
         fn=update_version_history,
@@ -1531,21 +1730,49 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
             right_placeholder = "📝 REVISED ARTICLE\n" + "=" * 42 + "\n\nThis panel displays the revised article produced by the Arbiter:\n\n- Incorporates Defender's supporting evidence\n- Addresses Challenger's valid criticisms\n- Adds epistemic qualifiers where appropriate\n- Balances competing perspectives\n\nThe revised article will appear here after debate completes."
 
+        elif selected_tool == "User Feedback":
+            # Left panel becomes interactive for user input - use placeholder instead of value
+            left_panel_placeholder = "Enter your feedback here...\n\nSuggest improvements to:\n- Claims needing qualifiers or sources\n- Overstatements or unwarranted certainty\n- Missing perspectives or caveats\n- Structural or clarity issues\n\nBe specific and reference particular sections."
+            left_placeholder = ""  # Empty value, will use placeholder instead
+
+            # If article exists, show it in center
+            if current_article_clean:
+                center_placeholder = "📝 CURRENT ARTICLE\n" + "=" * 42 + "\n\n" + current_article_clean
+            else:
+                center_placeholder = "📝 CURRENT ARTICLE\n" + "=" * 42 + \
+                    "\n\nNo article available. Generate an article before providing feedback."
+
+            right_placeholder = "📋 CHANGELOG\n" + "=" * 42 + "\n\nThis panel will display the changelog after processing your feedback:\n\n✓ ACCEPTED changes\n   - What was incorporated and why\n\n⚠️ PARTIALLY ACCEPTED changes\n   - What was modified and reasoning\n\n✗ REJECTED changes\n   - Why suggestions weren't incorporated\n\nThe revised article will appear in the center panel.\n\nEnter your feedback in the left panel and click 'Collect Feedback'."
+
         else:
             # Default placeholders for other tools
             left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + \
                 "\n\nProcess information will appear here."
+            left_panel_placeholder = None  # No placeholder for other tools
             center_placeholder = "📝 YOUR ARTICLE\n" + "=" * \
                 42 + "\n\nYour article content will appear here."
             right_placeholder = "📚 OUTPUT\n" + "=" * 42 + "\n\nResults will appear here."
 
-        return (
-            gr.update(value=button_text, interactive=not button_disabled),
-            gr.update(interactive=not topic_disabled),
-            gr.update(value=center_placeholder),
-            gr.update(value=left_placeholder),
-            gr.update(value=right_placeholder)
-        )
+        # Determine if left panel should be interactive
+        left_interactive = (selected_tool == "User Feedback")
+
+        # For User Feedback, clear value and use placeholder; for others, use value
+        if selected_tool == "User Feedback":
+            return (
+                gr.update(value=button_text, interactive=not button_disabled),
+                gr.update(interactive=not topic_disabled),
+                gr.update(value=center_placeholder),
+                gr.update(value="", placeholder=left_panel_placeholder, interactive=left_interactive),
+                gr.update(value=right_placeholder)
+            )
+        else:
+            return (
+                gr.update(value=button_text, interactive=not button_disabled),
+                gr.update(interactive=not topic_disabled),
+                gr.update(value=center_placeholder),
+                gr.update(value=left_placeholder, interactive=left_interactive),
+                gr.update(value=right_placeholder)
+            )
 
     epistemic_dropdown.change(
         fn=update_ui_state,
@@ -1556,7 +1783,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
     action_button.click(
         fn=execute_action,
-        inputs=[epistemic_dropdown, topic_input],
+        inputs=[epistemic_dropdown, topic_input, left_panel],
         outputs=[article_display, left_panel, right_panel]
     ).then(
         fn=update_version_history,
