@@ -445,13 +445,23 @@ def run_user_feedback(user_feedback):
         yield center_display, user_feedback, error_display
 
 
-def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type):
+def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
     """Generate synthetic training data with controlled epistemic properties."""
     import json
     import datetime
 
     # Convert num_examples from string to int
     num_examples = int(num_examples)
+
+    # Map article length to word count range
+    if article_length == "Brief":
+        word_range = "75-100"
+    elif article_length == "Standard":
+        word_range = "175-200"
+    elif article_length == "Long":
+        word_range = "275-300"
+    else:
+        word_range = "175-200"  # Default to Standard
 
     # Convert quality distribution selection to quality tiers list
     if quality_dist == "All":
@@ -551,7 +561,7 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type):
             generator_chat.append(system(
                 f"You are generating a synthetic training example for an epistemic quality classifier.\n\n"
                 f"{quality_instruction}\n\n"
-                f"Write a ~200 word article about the given topic with the specified epistemic characteristics. "
+                f"Write a {word_range} word article about the given topic with the specified epistemic characteristics. "
                 f"Output ONLY the article text in markdown format. Include a brief Sources section if appropriate."
             ))
             generator_chat.append(user(f"Generate an article about: {topic}"))
@@ -1570,11 +1580,12 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         /* Synthetic controls panel specific styling */
         #synthetic-controls-panel {
             border-radius: 4px !important;
-            background-color: #1a1a1a !important;
+            background-color: #0F0F0F !important;
             color: #e5e7eb !important;
             border: 1px solid #444444 !important;
-            padding: 16px !important;
+            padding: 10px 16px 16px 16px !important;
             margin-top: 16px !important;
+            margin-left: 12px !important;
             min-height: 600px !important;
             font-family: monospace !important;
         }
@@ -1583,11 +1594,44 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             color: #e5e7eb !important;
             margin-top: 0 !important;
             font-family: monospace !important;
-            font-weight: normal !important;
+            font-weight: 300 !important;
         }
 
         #synthetic-controls-panel label {
             font-family: monospace !important;
+        }
+
+        /* Move Generation Controls text up - using position relative */
+        #synthetic-controls-panel .gr-markdown,
+        #synthetic-controls-panel .markdown,
+        #synthetic-controls-panel div.markdown {
+            position: relative !important;
+            top: -10px !important;
+            margin-bottom: -10px !important;
+        }
+
+        /* Move the first divider line up */
+        #synthetic-controls-panel > div:nth-child(2) {
+            margin-top: -21px !important;
+        }
+
+        /* Reduce gap between divider lines and controls below them */
+        #divider-1, #divider-2, #divider-3, #divider-4 {
+            margin-bottom: -10px !important;
+        }
+
+        /* Ensure all controls are left-aligned */
+        #synthetic-controls-panel > div {
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+            align-items: flex-start !important;
+        }
+
+        /* Force all form controls to left align */
+        #synthetic-controls-panel .block.gr-number,
+        #synthetic-controls-panel .block.gr-dropdown {
+            margin-left: 0 !important;
+            padding-left: 0 !important;
         }
 
         /* Reduce spacing between radio buttons */
@@ -1597,13 +1641,34 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         #synthetic-controls-panel label {
             margin-bottom: 0.5px !important;
+            margin-left: 0 !important;
         }
 
-        /* Hide the number input box and reset button on slider */
-        #synthetic-controls-panel input[type="number"],
-        #synthetic-controls-panel button[aria-label="Reset to default"],
-        #synthetic-controls-panel .reset-button {
-            display: none !important;
+        /* Remove focus glow from number input */
+        #synthetic-controls-panel input[type="number"]:focus {
+            outline: none !important;
+            box-shadow: none !important;
+        }
+
+        /* Style quality dropdown with visible border - only button not label */
+        #quality-dropdown > div > div:last-child,
+        #quality-dropdown button {
+            border: 1px solid #666666 !important;
+            border-radius: 4px !important;
+        }
+
+        /* Style flaw dropdown with visible border - only button not label */
+        #flaw-dropdown > div > div:last-child,
+        #flaw-dropdown button {
+            border: 1px solid #666666 !important;
+            border-radius: 4px !important;
+        }
+
+        /* Style length dropdown with visible border - only button not label */
+        #length-dropdown > div > div:last-child,
+        #length-dropdown button {
+            border: 1px solid #666666 !important;
+            border-radius: 4px !important;
         }
 
         /* Version History Panel - raw HTML injection */
@@ -1863,35 +1928,46 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     with gr.Row(elem_classes=["article-row"]):
         # Synthetic Data left panel (Column with controls + log) - only visible for Synthetic Data
         with gr.Column(scale=1, visible=False, elem_id="synthetic-controls-panel") as synthetic_left_panel:
-            gr.Markdown("### ⚙️ Generation Controls")
+            gr.Markdown("⚙️ GENERATION CONTROLS")
 
-            gr.Markdown("---")
+            gr.Markdown("=" * 36, elem_id="divider-1")
 
-            num_examples_slider = gr.Slider(
+            num_examples_number = gr.Number(
+                value=5,
                 minimum=1,
                 maximum=10,
-                value=5,
-                step=1,
                 label="Number of Examples",
-                info="How many articles to generate"
+                info="Enter a number between 1-10"
             )
 
-            gr.Markdown("---")
+            gr.Markdown("=" * 36, elem_id="divider-2")
 
-            quality_radio = gr.Radio(
+            quality_dropdown = gr.Dropdown(
                 choices=["All", "Excellent", "Good", "Poor", "Terrible"],
                 value="All",
                 label="Quality Distribution",
-                info="Target epistemic quality"
+                info="Target epistemic quality",
+                elem_id="quality-dropdown"
             )
 
-            gr.Markdown("---")
+            gr.Markdown("=" * 36, elem_id="divider-3")
 
-            flaw_radio = gr.Radio(
+            flaw_dropdown = gr.Dropdown(
                 choices=["Auto", "Citations", "Certainty", "Bias", "Multiple"],
                 value="Auto",
                 label="Flaw Type",
-                info="Inject specific epistemic issue"
+                info="Inject specific epistemic issue",
+                elem_id="flaw-dropdown"
+            )
+
+            gr.Markdown("=" * 36, elem_id="divider-4")
+
+            length_dropdown = gr.Dropdown(
+                choices=["Brief", "Standard", "Long"],
+                value="Standard",
+                label="Article Length",
+                info="Target word count range",
+                elem_id="length-dropdown"
             )
 
         # Hidden placeholder for synthetic_log (removed from display but needed for outputs)
@@ -1939,7 +2015,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                             elem_id="version-state-holder")
 
     # Route action button to correct function based on dropdown
-    def execute_action(selected_tool, topic, user_feedback, num_examples, quality_dist, flaw_type):
+    def execute_action(selected_tool, topic, user_feedback, num_examples, quality_dist, flaw_type, article_length):
         if selected_tool == "Article Generation":
             # Generate article - yields to (center, left, right)
             for center, left, right in generate_initial_article(topic):
@@ -1958,7 +2034,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 yield center, left, left, right
         elif selected_tool == "Synthetic Data":
             # Generate synthetic training data - yields to (center, synthetic_log, right)
-            for center, synth_log, right in run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type):
+            for center, synth_log, right in run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
                 yield center, "", synth_log, right  # Empty string for left_panel, actual log for synthetic_log
         else:
             # Placeholder for other tools
@@ -1968,7 +2044,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     # Trigger action on Enter key in topic input (same behavior as action button)
     topic_input.submit(
         fn=execute_action,
-        inputs=[epistemic_dropdown, topic_input, left_panel, num_examples_slider, quality_radio, flaw_radio],
+        inputs=[epistemic_dropdown, topic_input, left_panel, num_examples_number, quality_dropdown, flaw_dropdown, length_dropdown],
         outputs=[article_display, left_panel, synthetic_log, right_panel]
     ).then(
         fn=update_version_history,
@@ -2110,7 +2186,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
     action_button.click(
         fn=execute_action,
-        inputs=[epistemic_dropdown, topic_input, left_panel, num_examples_slider, quality_radio, flaw_radio],
+        inputs=[epistemic_dropdown, topic_input, left_panel, num_examples_number, quality_dropdown, flaw_dropdown, length_dropdown],
         outputs=[article_display, left_panel, synthetic_log, right_panel]
     ).then(
         fn=update_version_history,
