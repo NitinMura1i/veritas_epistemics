@@ -450,6 +450,12 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
     import json
     import datetime
 
+    # Validate topic is not empty
+    if not topic or topic.strip() == "":
+        error_msg = "⚠️ ERROR: Please enter a topic before generating synthetic data."
+        yield "", error_msg, ""
+        return
+
     # Convert num_examples from string to int
     num_examples = int(num_examples)
 
@@ -623,13 +629,13 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
             }
             synthetic_dataset.append(data_entry)
 
-            # Update center preview with latest article
+            # Update center preview with all articles
             center_preview = "📝 GENERATED ARTICLES\n" + "=" * 44 + "\n\n"
-            center_preview += f"**Example {i+1}/{num_examples}** (Quality: {quality})\n"
-            center_preview += "-" * 44 + "\n\n"
-            center_preview += generated_article + "\n\n"
-            if i > 0:
-                center_preview += f"\n\n... ({i} previous examples generated)\n"
+            for entry in synthetic_dataset:
+                center_preview += f"**Example {entry['id']}/{num_examples}** (Quality: {entry['target_quality'].upper()})\n"
+                center_preview += "-" * 44 + "\n\n"
+                center_preview += entry['article'] + "\n\n"
+                center_preview += "=" * 44 + "\n\n"
 
             # Update metadata display
             metadata_display = "📋 DATASET METADATA\n" + "=" * 44 + "\n\n"
@@ -1787,6 +1793,25 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             border-color: #6366f1 !important;
             color: #6366f1 !important;
         }
+
+        #download-btn {
+            background-color: #0f0f0f !important;
+            border: 1.5px solid #e5e7eb !important;
+            color: #e5e7eb !important;
+            border-radius: 8px !important;
+            font-family: monospace !important;
+            font-size: 0.9rem !important;
+            padding: 8px 10px !important;
+            height: 38px !important;
+            cursor: pointer !important;
+            transition: all 0.3s ease !important;
+        }
+
+        #download-btn:hover {
+            background-color: #1a1a1a !important;
+            border-color: #6366f1 !important;
+            color: #6366f1 !important;
+        }
     </style>
     <script>
         // Scroll textareas to top after content updates
@@ -1912,6 +1937,15 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             scale=0,
             min_width=180,
             elem_id="action-button"
+        )
+
+        # Download button
+        download_btn = gr.Button(
+            value="🡳",
+            variant="secondary",
+            scale=0,
+            min_width=55,
+            elem_id="download-btn"
         )
 
         # Version History button
@@ -2067,7 +2101,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     )
 
     # Update action button text and input state based on dropdown selection
-    def update_ui_state(selected_tool):
+    def update_ui_state(selected_tool, topic):
         button_text_map = {
             "Article Generation": "Generate Article",
             "Multi-Agent Debate": "Start Debate",
@@ -2084,7 +2118,11 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         topic_disabled = (selected_tool not in ["Article Generation", "Synthetic Data"])
 
         # Check if article exists for epistemic tools (Synthetic Data doesn't need an existing article)
-        button_disabled = topic_disabled and not current_article_clean
+        # For Synthetic Data, disable button if topic is empty
+        if selected_tool == "Synthetic Data":
+            button_disabled = not topic or topic.strip() == ""
+        else:
+            button_disabled = topic_disabled and not current_article_clean
 
         # Set placeholder content for panels based on selected tool
         if selected_tool == "Article Generation":
@@ -2178,7 +2216,16 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
     epistemic_dropdown.change(
         fn=update_ui_state,
-        inputs=[epistemic_dropdown],
+        inputs=[epistemic_dropdown, topic_input],
+        outputs=[action_button, topic_input,
+                 article_display, left_panel, right_panel,
+                 synthetic_left_panel]
+    )
+
+    # Update button state when topic changes (for Synthetic Data page)
+    topic_input.change(
+        fn=update_ui_state,
+        inputs=[epistemic_dropdown, topic_input],
         outputs=[action_button, topic_input,
                  article_display, left_panel, right_panel,
                  synthetic_left_panel]
