@@ -7,6 +7,7 @@ from autocorrect import Speller
 
 from xai_sdk import Client
 from xai_sdk.chat import user, system
+from xai_sdk.tools import web_search
 
 load_dotenv()
 
@@ -27,7 +28,7 @@ version_panel_visible = False  # Track if version history panel is visible
 
 
 def toggle_source_view():
-    """Toggle Wikipedia source panel content."""
+    """Toggle source panel content."""
     global source_visible, current_sources
 
     source_visible = not source_visible
@@ -926,207 +927,224 @@ Produce the final revised article."""))
         yield left_display, error_transcript, ""
 
 
-def fetch_arxiv(topic: str) -> Optional[Dict[str, str]]:
-    """Fetch arXiv paper for a given topic."""
+def fetch_content_from_url(url: str) -> Optional[Dict[str, str]]:
+    """Fetch content from a URL. Supports Wikipedia URLs via API."""
     try:
-        import xml.etree.ElementTree as ET
+        if "wikipedia.org/wiki/" in url:
+            from urllib.parse import unquote
+            title = url.split("/wiki/")[-1].replace("_", " ")
+            title = unquote(title)
 
-        # arXiv API endpoint
-        search_url = "https://export.arxiv.org/api/query"
+            api_url = "https://en.wikipedia.org/w/api.php"
+            headers = {"User-Agent": "Veritas-Epistemics/1.0 (Educational Project)"}
+            params = {
+                "action": "query",
+                "format": "json",
+                "titles": title,
+                "prop": "extracts",
+                "explaintext": True
+            }
+            response = requests.get(api_url, params=params, headers=headers, timeout=10)
+            data = response.json()
 
-        params = {
-            "search_query": f"all:{topic}",
-            "start": 0,
-            "max_results": 1,
-            "sortBy": "relevance",
-            "sortOrder": "descending"
-        }
+            pages = data.get("query", {}).get("pages", {})
+            page_id = list(pages.keys())[0]
 
-        headers = {
-            "User-Agent": "Veritas-Epistemics/1.0 (Educational Article Generator; mailto:user@example.com)"
-        }
-        response = requests.get(search_url, params=params,
-                                headers=headers, timeout=10)
+            if page_id == "-1":
+                return {"title": title, "content": "", "url": url}
 
-        if response.status_code != 200:
-            return None
+            extract = pages[page_id].get("extract", "")
+            actual_title = pages[page_id].get("title", title)
 
-        # Parse XML response
-        root = ET.fromstring(response.content)
-
-        # Define namespace
-        ns = {'atom': 'http://www.w3.org/2005/Atom'}
-
-        # Find first entry
-        entry = root.find('atom:entry', ns)
-        if entry is None:
-            return None
-
-        # Extract data
-        title = entry.find('atom:title', ns)
-        title = title.text.strip().replace('\n', ' ') if title is not None else ""
-
-        summary = entry.find('atom:summary', ns)
-        summary = summary.text.strip().replace(
-            '\n', ' ') if summary is not None else "No abstract available"
-
-        # Get authors
-        authors = []
-        for author in entry.findall('atom:author', ns)[:3]:
-            name = author.find('atom:name', ns)
-            if name is not None:
-                authors.append(name.text)
-        authors_str = ", ".join(authors) if authors else "Unknown"
-        if len(entry.findall('atom:author', ns)) > 3:
-            authors_str += " et al."
-
-        # Get URL
-        link = entry.find('atom:id', ns)
-        paper_url = link.text if link is not None else ""
-
-        return {
-            "title": title,
-            "authors": authors_str,
-            "content": summary,
-            "url": paper_url
-        }
+            return {"title": actual_title, "content": extract, "url": url}
+        else:
+            return {"title": url, "content": "", "url": url}
     except Exception as e:
-        print(f"Error fetching arXiv: {e}")
-        return None
+        print(f"Error fetching content from URL: {e}")
+        return {"title": url, "content": "", "url": url}
 
 
 def generate_initial_article(topic: str):
-    """Generate initial article with Wikipedia and arXiv grounding."""
+    """Generate initial article with live web search grounding (Wikipedia fallback)."""
     global article_history, current_sources, current_article_clean, current_grounding_context, original_article
 
     # Status in left panel
     status_log = "🔍 PROCESS LOG\n"
     status_log += "=" * 44 + "\n\n"
-    status_log += "⏳ Searching Wikipedia for relevant content...\n\n"
-    yield "", status_log, ""  # (center, left, right)
+    status_log += "⏳ Searching the web for relevant sources...\n\n"
 
-    # Fetch Wikipedia
-    wiki_data = fetch_wikipedia(topic)
+    # Show loading message in center panel
+    article_placeholder = "📝 YOUR ARTICLE\n" + "=" * 44 + \
+        "\n\n⏳ Your generated article will appear shortly..."
 
-    if wiki_data:
-        status_log += f"✅ Found Wikipedia article: '{wiki_data['title']}'\n\n"
-    else:
-        status_log += f"⚠️ No Wikipedia article found for '{topic}'\n\n"
+    # Show loading message in right panel
+    loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
+        "\n\n⏳ Searching web for sources...\n\nSources will appear here when article generation is complete."
+    yield article_placeholder, status_log, loading_message  # (center, left, right)
 
-    # Search arXiv
-    status_log += "⏳ Searching arXiv for relevant papers...\n\n"
-    yield "", status_log, ""  # (center, left, right)
-
-    paper_data = fetch_arxiv(topic)
-
-    if paper_data:
-        status_log += f"✅ Found paper: '{paper_data['title'][:60]}...'\n\n"
-    else:
-        status_log += f"⚠️ No papers found for '{topic}'\n\n"
-
-    # Build source display for right panel
-    sources_display = ""
-    source_context = ""
+    # Initialize variables
     source_notes = []
     current_sources = []
+    source_context = ""
+    streaming_sources_display = ""
+    used_fallback = False
 
-    if wiki_data and paper_data:
-        # Both sources found
-        sources_display = "📚 WIKIPEDIA & ARXIV ARTICLES\n"
-        sources_display += "=" * 44 + "\n\n"
+    try:
+        # Create chat with live web search enabled
+        chat = client.chat.create(
+            model="grok-4-1-fast",
+            include=["inline_citations"],
+            tools=[web_search()],
+        )
 
-        sources_display += "WIKIPEDIA:\n"
-        sources_display += "-" * 44 + "\n\n"
-        sources_display += f"**{wiki_data['title']}**\n\n"
-        sources_display += f"Source: {wiki_data['url']}\n\n"
-        sources_display += f"{wiki_data['content'][:2500]}\n\n\n"
+        chat.append(system(
+            "You are an expert knowledge synthesizer focused on epistemic integrity. "
+            "Search the web for ONE authoritative source about the topic, then write a factual, "
+            "well-sourced article with inline citations. Use exactly 1 high-quality source. "
+            "Be clear about certainty levels and avoid speculation."
+        ))
 
-        sources_display += "ARXIV:\n"
-        sources_display += "-" * 44 + "\n\n"
-        sources_display += f"**{paper_data['title']}**\n\n"
-        sources_display += f"Authors: {paper_data['authors']}\n\n"
-        sources_display += f"Source: {paper_data['url']}\n\n"
-        sources_display += f"{paper_data['content'][:2500]}"
+        prompt = f"""Search the web for authoritative information about "{topic}", then write a comprehensive, factual article.
 
-        source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:2000]}\n\n---\n\narXiv Paper: {paper_data['title']}\nAuthors: {paper_data['authors']}\n\n{paper_data['content'][:2000]}"
-        source_notes.append(
-            f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
-        source_notes.append(
-            f"[arXiv: {paper_data['title'][:50]}...]({paper_data['url']})")
+Requirements:
+1. Search for and use exactly 1 high-quality, authoritative source (prefer established sources like Wikipedia, academic sites, reputable news)
+2. Write in encyclopedic style (factual, neutral, well-structured)
+3. Include inline citations referencing your source
+4. Add a "## Sources" section at the end listing the reference with URL
+5. Be clear about certainty levels - use phrases like "evidence suggests", "widely accepted", etc.
+6. Length: EXACTLY 300 words (excluding the Sources section)
+7. Structure: Introduction, 2-3 main sections, conclusion, sources
 
-        current_sources = [
-            {"name": wiki_data['title'], "type": "Wikipedia",
-                "url": wiki_data['url'], "content": wiki_data['content']},
-            {"name": paper_data['title'], "type": "arXiv", "url": paper_data['url'],
-                "content": paper_data['content'], "authors": paper_data['authors']}
-        ]
+Format the article in clean markdown."""
 
-    elif wiki_data:
-        # Only Wikipedia found
-        sources_display = "📚 WIKIPEDIA ARTICLE\n"
-        sources_display += "=" * 44 + "\n\n"
-        sources_display += f"**{wiki_data['title']}**\n\n"
-        sources_display += f"Source: {wiki_data['url']}\n\n"
-        sources_display += "---\n\n"
-        sources_display += f"{wiki_data['content'][:2500]}"
+        chat.append(user(prompt))
 
-        source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"
-        source_notes.append(
-            f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
-        current_sources = [{"name": wiki_data['title'], "type": "Wikipedia",
-                            "url": wiki_data['url'], "content": wiki_data['content']}]
+        status_log += "⏳ Generating article with live web search...\n\n"
+        yield article_placeholder, status_log, loading_message
 
-    elif paper_data:
-        # Only Semantic Scholar found
-        sources_display = "📚 ARXIV ARTICLE\n"
-        sources_display += "=" * 44 + "\n\n"
-        sources_display += f"**{paper_data['title']}**\n\n"
-        sources_display += f"Authors: {paper_data['authors']}\n\n"
-        sources_display += f"Source: {paper_data['url']}\n\n"
-        sources_display += "---\n\n"
-        sources_display += f"{paper_data['content'][:2500]}"
+        # Stream the article generation
+        article_content = ""
+        final_response = None
 
-        source_context = f"arXiv Paper: {paper_data['title']}\nAuthors: {paper_data['authors']}\n\n{paper_data['content'][:3000]}"
-        source_notes.append(
-            f"[arXiv: {paper_data['title'][:50]}...]({paper_data['url']})")
-        current_sources = [{"name": paper_data['title'], "type": "arXiv", "url": paper_data['url'],
-                            "content": paper_data['content'], "authors": paper_data['authors']}]
+        for response, chunk in chat.stream():
+            final_response = response
+            if chunk.content:
+                article_content += chunk.content
 
-    else:
-        # No sources found
-        source_context = f"No specific source found. Generating article about: {topic}"
-        current_sources = []
+                # Build streaming article display (sources pending)
+                streaming_article = "📝 YOUR ARTICLE\n"
+                streaming_article += "=" * 44 + "\n\n"
+                streaming_article += article_content
 
-    # Show sources in right panel - keep placeholder during generation
-    loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
-        "\n\n⏳ Loading sources...\n\nSources will appear here when article generation is complete."
+                # Yield: center (streaming article), left (status log), right (loading)
+                yield streaming_article, status_log, loading_message
 
-    if current_sources:
-        status_log += "⏳ Generating epistemically grounded article...\n\n"
-    else:
-        status_log += "⏳ Generating article from general knowledge (ungrounded)...\n\n"
-    yield "", status_log, loading_message  # (center, left, right)
+        # Extract citations from the final response (limit to 1)
+        citations = []
+        if final_response and hasattr(final_response, 'citations') and final_response.citations:
+            citations = list(final_response.citations)[:1]
 
-    # Build source note for article
+        if citations:
+            status_log += "✅ Found web source\n\n"
+
+            # Fetch content from the source URL
+            url = citations[0]
+            source_data = fetch_content_from_url(url)
+
+            # Build source display for right panel
+            streaming_sources_display = "📚 WEB SOURCE\n"
+            streaming_sources_display += "=" * 44 + "\n\n"
+
+            if source_data and source_data.get("content"):
+                # Wikipedia or other source with content - show first 250 words
+                content = source_data["content"]
+                words = content.split()
+                truncated_content = " ".join(words[:250])
+                if len(words) > 250:
+                    truncated_content += "..."
+
+                streaming_sources_display += f"**{source_data['title']}**\n\n"
+                streaming_sources_display += f"Source: {url}\n\n"
+                streaming_sources_display += "-" * 44 + "\n\n"
+                streaming_sources_display += truncated_content
+
+                source_notes.append(f"[{source_data['title']}]({url})")
+                current_sources.append({
+                    "name": source_data["title"],
+                    "type": "Web",
+                    "url": url,
+                    "content": content
+                })
+                source_context = f"Web Source: {source_data['title']}\n\n{content[:3000]}"
+            else:
+                # Non-Wikipedia or failed fetch - just show URL
+                streaming_sources_display += f"**{url}**\n\n"
+                streaming_sources_display += "(Content preview not available for this source)"
+
+                source_notes.append(f"[Source]({url})")
+                current_sources.append({
+                    "name": url,
+                    "type": "Web",
+                    "url": url
+                })
+                source_context = f"Web Source: {url}"
+        else:
+            status_log += "⚠️ No citations found in response\n\n"
+
+    except Exception as e:
+        status_log += f"⚠️ Live search failed: {str(e)}\n\n"
+
+    # Fallback to Wikipedia if no sources found
+    if not current_sources:
+        used_fallback = True
+        status_log += "⏳ Falling back to Wikipedia...\n\n"
+        yield article_placeholder, status_log, loading_message
+
+        wiki_data = fetch_wikipedia(topic)
+
+        if wiki_data:
+            status_log += f"✅ Found Wikipedia article: '{wiki_data['title']}'\n\n"
+
+            streaming_sources_display = "📚 WIKIPEDIA ARTICLE (FALLBACK)\n"
+            streaming_sources_display += "=" * 44 + "\n\n"
+            streaming_sources_display += f"**{wiki_data['title']}**\n\n"
+            streaming_sources_display += f"Source: {wiki_data['url']}\n\n"
+            streaming_sources_display += "---\n\n"
+            streaming_sources_display += f"{wiki_data['content'][:2500]}"
+
+            source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"
+            source_notes.append(f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
+            current_sources = [{"name": wiki_data['title'], "type": "Wikipedia",
+                              "url": wiki_data['url'], "content": wiki_data['content']}]
+        else:
+            status_log += f"⚠️ No Wikipedia article found for '{topic}'\n\n"
+            source_context = f"No specific source found. Generating article about: {topic}"
+            streaming_sources_display = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
+                "\n\n⚠️ No sources found.\n\nArticle generated from general knowledge."
+
+    # Build source note for article header
     if source_notes:
         source_note = f"Grounded in: {' + '.join(source_notes)}"
     else:
         source_note = "⚠️ No sources found - generated from general knowledge"
 
-    # Generate article with xAI
-    source_instruction = ""
-    if wiki_data and paper_data:
-        source_instruction = f"Use the Wikipedia article to define the scope and structure of your article about '{topic}'. Use the arXiv paper ONLY to add academic depth where directly relevant, not to shift focus to niche sub-topics or specific research questions in the paper."
-    elif wiki_data:
-        source_instruction = "Use the following Wikipedia content as your primary source:"
-    elif paper_data:
-        source_instruction = f"Use the following arXiv paper as your primary source. Keep the article broadly focused on '{topic}' as a general topic rather than narrowly focused on the specific research question in the paper."
-    else:
-        source_instruction = "Generate based on your knowledge:"
+    # If we used fallback, need to regenerate article with Wikipedia context
+    if used_fallback and current_sources:
+        status_log += "⏳ Generating article with Wikipedia source...\n\n"
+        yield article_placeholder, status_log, streaming_sources_display
 
-    prompt = f"""You are an expert knowledge synthesizer. Write a comprehensive, factual article about "{topic}".
+        try:
+            fallback_chat = client.chat.create(model="grok-4-1-fast")
 
-{source_instruction}
+            fallback_chat.append(system(
+                "You are an expert knowledge synthesizer focused on epistemic integrity. "
+                "Write factual, well-sourced articles with inline citations. "
+                "Be clear about certainty levels and avoid speculation."
+            ))
+
+            fallback_prompt = f"""You are an expert knowledge synthesizer. Write a comprehensive, factual article about "{topic}".
+
+Use the following Wikipedia content as your primary source:
 
 {source_context}
 
@@ -1140,89 +1158,43 @@ Requirements:
 
 Format the article in clean markdown."""
 
-    try:
-        # xAI SDK chat - create chat object and append messages
-        chat = client.chat.create(model="grok-4-1-fast-reasoning")
+            fallback_chat.append(user(fallback_prompt))
 
-        chat.append(system(
-            "You are an expert knowledge synthesizer focused on epistemic integrity. "
-            "Write factual, well-sourced articles with inline citations. "
-            "Be clear about certainty levels and avoid speculation."
-        ))
+            article_content = ""
+            for response, chunk in fallback_chat.stream():
+                if chunk.content:
+                    article_content += chunk.content
 
-        chat.append(user(prompt))
+                    streaming_article = "📝 YOUR ARTICLE\n"
+                    streaming_article += "=" * 44 + "\n\n"
+                    streaming_article += article_content
 
-        # Stream the article generation
-        article_content = ""
+                    yield streaming_article, status_log, streaming_sources_display
 
-        # Build sources display for right panel during streaming
-        streaming_sources_display = ""
-        if len(current_sources) == 2:
-            streaming_sources_display = "📚 WIKIPEDIA & ARXIV ARTICLES\n"
-            streaming_sources_display += "=" * 44 + "\n\n"
-            streaming_sources_display += "WIKIPEDIA:\n"
-            streaming_sources_display += "-" * 44 + "\n\n"
-            streaming_sources_display += f"**{current_sources[0]['name']}**\n\n"
-            streaming_sources_display += f"Source: {current_sources[0]['url']}\n\n"
-            streaming_sources_display += f"{current_sources[0]['content'][:2500]}\n\n\n"
-            streaming_sources_display += "ARXIV:\n"
-            streaming_sources_display += "-" * 44 + "\n\n"
-            streaming_sources_display += f"**{current_sources[1]['name']}**\n\n"
-            streaming_sources_display += f"Authors: {current_sources[1]['authors']}\n\n"
-            streaming_sources_display += f"Source: {current_sources[1]['url']}\n\n"
-            streaming_sources_display += f"{current_sources[1]['content'][:2500]}"
-        elif len(current_sources) == 1:
-            source = current_sources[0]
-            if source['type'] == 'Wikipedia':
-                streaming_sources_display = "📚 WIKIPEDIA ARTICLE\n"
-                streaming_sources_display += "=" * 44 + "\n\n"
-                streaming_sources_display += f"**{source['name']}**\n\n"
-                streaming_sources_display += f"Source: {source['url']}\n\n"
-                streaming_sources_display += "---\n\n"
-                streaming_sources_display += f"{source['content'][:2500]}"
-            else:
-                streaming_sources_display = "📚 ARXIV ARTICLE\n"
-                streaming_sources_display += "=" * 44 + "\n\n"
-                streaming_sources_display += f"**{source['name']}**\n\n"
-                streaming_sources_display += f"Authors: {source['authors']}\n\n"
-                streaming_sources_display += f"Source: {source['url']}\n\n"
-                streaming_sources_display += "---\n\n"
-                streaming_sources_display += f"{source['content'][:2500]}"
+        except Exception as e:
+            status_log += f"❌ Error generating article: {str(e)}\n\nPlease try again.\n"
+            error_article = "📝 YOUR ARTICLE\n" + "=" * 44 + "\n\n❌ Error generating article. Please try again."
+            yield error_article, status_log, streaming_sources_display
+            return
 
-        for response, chunk in chat.stream():
-            if chunk.content:
-                article_content += chunk.content
+    # Add header at the top
+    final_article = "📝 YOUR ARTICLE\n"
+    final_article += "=" * 44 + "\n\n"
+    final_article += article_content
 
-                # Build streaming article display
-                streaming_article = "📝 YOUR ARTICLE\n"
-                streaming_article += "=" * 44 + "\n\n"
-                streaming_article += f"__{source_note}__\n\n---\n\n{article_content}"
+    # Store in history
+    article_history.append(final_article)
 
-                # Yield: center (streaming article), left (status log), right (sources)
-                yield streaming_article, status_log, streaming_sources_display
+    # Store clean article and grounding context for debates
+    current_article_clean = article_content
+    original_article = article_content
+    current_grounding_context = source_context
 
-        # Add header and source note at the top
-        final_article = f"📝 YOUR ARTICLE\n"
-        final_article += "=" * 44 + "\n\n"
-        final_article += f"__{source_note}__\n\n---\n\n{article_content}"
+    # Update status log to show completion
+    status_log += "✅ Article generation complete!\n\n"
 
-        # Store in history
-        article_history.append(final_article)
-
-        # Store clean article and grounding context for debates
-        current_article_clean = article_content
-        original_article = article_content
-        current_grounding_context = source_context
-
-        # Update status log to show completion
-        status_log += "✅ Article generation complete!\n\n"
-
-        # Yield: center (article), left (status), right (sources) - reuse streaming_sources_display
-        yield final_article, status_log, streaming_sources_display
-
-    except Exception as e:
-        status_log += f"❌ Error generating article: {str(e)}\n\nPlease try again.\n"
-        yield "", status_log, ""
+    # Yield final result
+    yield final_article, status_log, streaming_sources_display
 
 
 # Dark theme
@@ -2113,7 +2085,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Normal left panel - Process log and status (visible for all tools EXCEPT Synthetic Data)
         left_panel = gr.Textbox(
-            value="🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Wikipedia search progress\n- arXiv paper search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the arrow to begin!",
+            value="🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Web search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the arrow to begin!",
             lines=30,
             interactive=False,
             show_copy_button=False,
@@ -2135,10 +2107,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             show_label=False
         )
 
-        # Right panel - Source material (Wikipedia & arXiv)
+        # Right panel - Source material (Web Sources)
         right_panel = gr.Textbox(
             value="📚 SOURCE MATERIAL\n" + "=" * 42 +
-            "\n\nThis panel displays source articles used to generate your article:\n\n- Wikipedia articles (general knowledge)\n- arXiv papers (academic research)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation.",
+            "\n\nThis panel displays sources used to generate your article:\n\n- Web sources (via live search)\n- Wikipedia (fallback)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation.",
             lines=30,
             interactive=False,
             show_copy_button=False,
@@ -2239,11 +2211,11 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Set placeholder content for panels based on selected tool
         if selected_tool == "Article Generation":
-            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Wikipedia search progress\n- arXiv paper search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the button to begin!"
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Web search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the button to begin!"
             center_placeholder = "📝 YOUR ARTICLE\n" + "=" * 42 + \
                 "\n\nYour generated article will appear here.\n\nIterate it in order to get as close to the truth as you can!"
             right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 42 + \
-                "\n\nThis panel displays source articles used to generate your article:\n\n- Wikipedia articles (general knowledge)\n- arXiv papers (academic research)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation."
+                "\n\nThis panel displays sources used to generate your article:\n\n- Web sources (via live search)\n- Wikipedia (fallback)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation."
 
         elif selected_tool == "Self-Critique":
             left_placeholder = "🔍 CRITIQUE ANALYSIS\n" + "=" * 42 + "\n\nThis panel displays the critical analysis of your article:\n\n- Epistemic quality assessment\n- Identification of overstatements\n- Analysis of certainty language\n- Detection of missing qualifiers\n- Suggestions for improvement\n\nClick 'Critique Article' to begin the self-critique process!"
