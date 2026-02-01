@@ -453,18 +453,41 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
     # Validate topic is not empty
     if not topic or topic.strip() == "":
         error_msg = "⚠️ ERROR: Please enter a topic before generating synthetic data."
-        yield "", error_msg, ""
+        yield error_msg, "", "", None
+        return
+
+    # Comprehensive topic validation
+    import re
+    topic_clean = topic.strip()
+
+    # Check minimum length
+    if len(topic_clean) < 2:
+        error_msg = "⚠️ ERROR: Topic must be at least 2 characters long.\n\nPlease enter a meaningful topic (e.g., 'AI', 'Climate Change', 'Quantum Computing')."
+        yield error_msg, "", "", None
+        return
+
+    # Check for alphabetic content (reject pure emojis, punctuation, numbers)
+    alphabetic_chars = re.findall(r'[a-zA-Z]', topic_clean)
+    if len(alphabetic_chars) < 2:
+        error_msg = "⚠️ ERROR: Topic must contain at least 2 letters.\n\nPlease enter a meaningful topic (e.g., 'AI', 'Climate Change', 'Quantum Computing')."
+        yield error_msg, "", "", None
+        return
+
+    # Check for variety (reject single repeated character like "aaaa" or "kkkk")
+    if len(set(alphabetic_chars)) < 2:
+        error_msg = "⚠️ ERROR: Topic must contain more than one unique letter.\n\nPlease enter a meaningful topic (e.g., 'AI', 'Climate Change', 'Quantum Computing')."
+        yield error_msg, "", "", None
         return
 
     # Convert num_examples from string to int
     num_examples = int(num_examples)
 
     # Map article length to word count range
-    if article_length == "Brief":
+    if article_length.startswith("Brief"):
         word_range = "75-100"
-    elif article_length == "Standard":
+    elif article_length.startswith("Standard"):
         word_range = "175-200"
-    elif article_length == "Long":
+    elif article_length.startswith("Long"):
         word_range = "275-300"
     else:
         word_range = "175-200"  # Default to Standard
@@ -489,11 +512,12 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
     log += f"📊 Configuration:\n"
     log += f"- Target topic: {topic}\n"
     log += f"- Number of examples: {num_examples}\n"
-    log += f"- Quality distribution: Varied\n"
-    log += f"- Flaws: Controlled injection\n\n"
+    log += f"- Quality distribution: {quality_dist}\n"
+    log += f"- Flaw type: {flaw_type}\n"
+    log += f"- Article length: {article_length} ({word_range} words)\n\n"
     log += "⏳ Starting generation process...\n\n"
 
-    yield "", log, ""
+    yield "", log, "", None
 
     # Storage for generated data
     synthetic_dataset = []
@@ -509,45 +533,67 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
             # Select quality tier and specific flaw for this example
             quality = quality_tiers[i % len(quality_tiers)]
 
-            # Map quality to specific epistemic flaws
-            flaw_map = {
-                "excellent": "none",
-                "good": "minor_overcertainty",
-                "fair": "missing_citations",
-                "poor": "multiple_flaws",
-                "terrible": "severe_bias_and_overstatements"
-            }
-            target_flaw = flaw_map[quality]
+            # Determine target flaw based on flaw_type selection
+            # Excellent quality always has no flaws, regardless of flaw_type
+            if quality == "excellent":
+                target_flaw = "none"
+            elif flaw_type == "Auto":
+                # Map quality to specific epistemic flaws automatically
+                flaw_map = {
+                    "good": "minor_overcertainty",
+                    "fair": "missing_citations",
+                    "poor": "multiple_flaws",
+                    "terrible": "severe_bias_and_overstatements"
+                }
+                target_flaw = flaw_map.get(quality, "none")
+            elif flaw_type == "Citations":
+                target_flaw = "missing_citations"
+            elif flaw_type == "Certainty":
+                target_flaw = "overcertainty"
+            elif flaw_type == "Bias":
+                target_flaw = "biased_framing"
+            elif flaw_type == "Multiple":
+                target_flaw = "multiple_flaws"
+            else:
+                target_flaw = "auto"
 
             # Update log
             log += f"📝 Generating example {i+1}/{num_examples}...\n"
             log += f"   Quality tier: {quality}\n"
             log += f"   Target flaw: {target_flaw}\n\n"
-            yield center_preview, log, metadata_display
+            yield center_preview, log, metadata_display, None
 
             # Generate article with controlled epistemic quality
             generator_chat = client.chat.create(model="grok-4-1-fast-reasoning")
 
-            # Craft prompt based on target quality
+            # Craft prompt based on target quality and specific flaw type
             if quality == "excellent":
-                quality_instruction = """Generate an epistemically excellent article with:
-- Appropriate hedging and uncertainty language
-- Well-sourced claims with clear citations
-- Balanced framing of controversial points
-- Clear distinction between evidence and speculation
-- No overstatements or unwarranted certainty"""
+                # Excellent articles are always truly excellent, ignore flaw_type
+                quality_instruction = """Generate an epistemically EXCELLENT article (should score 9-10 on all dimensions):
+- Use precise hedging language ("suggests", "indicates", "may", "appears to") for uncertain claims
+- Include specific citations with sources for ALL major claims (e.g., "According to [Source, Year]...")
+- Present multiple perspectives on any debatable points
+- Explicitly distinguish between established facts and ongoing research/speculation
+- Include caveats about data limitations or methodological constraints
+- Use measured, qualified language throughout - no absolute statements without ironclad evidence
+- Include a Sources/References section with specific attributions"""
             elif quality == "good":
-                quality_instruction = """Generate a generally good article but with minor epistemic issues:
-- Mostly appropriate certainty language, but 1-2 slightly overconfident claims
-- Good sourcing overall
-- Balanced framing
-- One or two statements could use more qualification"""
+                quality_instruction = """Generate a GOOD quality article (target 6-8 scores):
+- Include SPECIFIC citations for most claims (e.g., "According to [Source, Year]...")
+- Use appropriate hedging language for most statements ("suggests", "indicates", "research shows")
+- Allow only 1-2 minor lapses: one claim without citation OR one slightly promotional phrase ("vibrant", "boasts")
+- Maintain neutral, informative tone overall - avoid multiple promotional words
+- Present facts objectively without one-sided framing
+- Include a proper Sources section with multiple references
+- The article should feel solid and informative, just not quite perfect"""
             elif quality == "fair":
-                quality_instruction = """Generate an article with noticeable epistemic issues:
-- Several unsourced claims that should have citations
-- Some appropriate hedging, but several definitive statements on uncertain matters
-- Generally balanced but missing some important caveats
-- Mix of good and problematic epistemic practices"""
+                quality_instruction = """Generate a FAIR quality article (target 4-6 scores):
+- Include SOME specific citations, but leave several significant claims unsourced
+- Mix hedging with definitive statements - use "may" and "suggests" sometimes, but also use "is" and "proves" for uncertain claims
+- Attempt balance but lean slightly positive/promotional without being one-sided propaganda
+- Include basic sourcing attempts ("studies show", "researchers say") even if vague
+- Include a Sources section but it can be incomplete or vague
+- Should feel like a decent Wikipedia article with noticeable gaps"""
             elif quality == "poor":
                 quality_instruction = """Generate an article with significant epistemic problems:
 - Many claims lack sources or citations
@@ -564,6 +610,17 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
 - Speculation presented as definitive fact
 - Makes strong causal claims without evidence"""
 
+            # Add flaw-specific emphasis only for non-excellent quality tiers
+            if quality != "excellent" and flaw_type != "Auto":
+                if flaw_type == "Citations":
+                    quality_instruction += "\n\nIMPORTANT: Focus especially on citation/sourcing issues. Make claims without proper attribution or sources."
+                elif flaw_type == "Certainty":
+                    quality_instruction += "\n\nIMPORTANT: Focus especially on certainty language issues. Use overconfident language and avoid appropriate hedging."
+                elif flaw_type == "Bias":
+                    quality_instruction += "\n\nIMPORTANT: Focus especially on biased framing. Present one-sided perspectives and miss important counterarguments."
+                elif flaw_type == "Multiple":
+                    quality_instruction += "\n\nIMPORTANT: Include multiple types of epistemic flaws (citations, certainty, bias) throughout the article."
+
             generator_chat.append(system(
                 f"You are generating a synthetic training example for an epistemic quality classifier.\n\n"
                 f"{quality_instruction}\n\n"
@@ -572,11 +629,26 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
             ))
             generator_chat.append(user(f"Generate an article about: {topic}"))
 
-            # Generate article
+            # Generate article with streaming updates
             generated_article = ""
             for response, chunk in generator_chat.stream():
                 if chunk.content:
                     generated_article += chunk.content
+
+                    # Rebuild center preview with streaming article
+                    temp_center_preview = "📝 GENERATED ARTICLES\n" + "=" * 44 + "\n\n"
+                    # Show all previously completed articles
+                    for entry in synthetic_dataset:
+                        temp_center_preview += f"**Example {entry['id']}/{num_examples}** (Quality: {entry['target_quality'].upper()})\n"
+                        temp_center_preview += "-" * 44 + "\n\n"
+                        temp_center_preview += entry['article'] + "\n\n"
+                        temp_center_preview += "=" * 44 + "\n\n"
+                    # Show currently streaming article
+                    temp_center_preview += f"**Example {i+1}/{num_examples}** (Quality: {quality.upper()}) - GENERATING...\n"
+                    temp_center_preview += "-" * 44 + "\n\n"
+                    temp_center_preview += generated_article + "▌"  # Add cursor to show it's streaming
+
+                    yield temp_center_preview, log, metadata_display, None
 
             # Label the article with epistemic scores
             labeler_chat = client.chat.create(model="grok-4-1-fast-reasoning")
@@ -586,6 +658,13 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
                 "- certainty_appropriateness: Whether certainty language matches evidence strength\n"
                 "- bias_level: How balanced vs biased the framing is (10 = very balanced, 0 = very biased)\n"
                 "- completeness: Whether important caveats and limitations are mentioned\n\n"
+                "Evaluate objectively using the full 0-10 scale:\n"
+                "- 9-10: Near-perfect epistemic quality\n"
+                "- 7-8: Strong quality with minor issues\n"
+                "- 5-6: Adequate with noticeable problems\n"
+                "- 3-4: Significant issues but some structure\n"
+                "- 1-2: Severe problems, minimal value\n"
+                "- 0: Complete epistemic failure\n\n"
                 "Also identify specific epistemic flaws present.\n\n"
                 "Format your response as:\n"
                 "SOURCE_QUALITY: [0-10]\n"
@@ -641,23 +720,32 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
             metadata_display = "📋 DATASET METADATA\n" + "=" * 44 + "\n\n"
             for entry in synthetic_dataset:
                 metadata_display += f"**Example {entry['id']}** - {entry['target_quality'].upper()}\n"
-                metadata_display += f"Scores: Src={entry['labels']['source_quality']}/10, "
-                metadata_display += f"Cert={entry['labels']['certainty_appropriateness']}/10, "
-                metadata_display += f"Bias={entry['labels']['bias_balance']}/10, "
-                metadata_display += f"Comp={entry['labels']['completeness']}/10\n"
-                metadata_display += f"Flaws: {entry['identified_flaws'][:80]}...\n\n"
+                metadata_display += f"Source Quality: {entry['labels']['source_quality']}/10\n"
+                metadata_display += f"Certainty Appropriateness: {entry['labels']['certainty_appropriateness']}/10\n"
+                metadata_display += f"Bias Balance: {entry['labels']['bias_balance']}/10\n"
+                metadata_display += f"Completeness: {entry['labels']['completeness']}/10\n"
+                metadata_display += f"Flaws: {entry['identified_flaws']}\n\n"
 
             # Update log
             log += f"✅ Example {i+1} complete\n"
             log += f"   Scores: {source_quality}, {certainty}, {bias}, {completeness}\n\n"
 
-            yield center_preview, log, metadata_display
+            yield center_preview, log, metadata_display, None
 
         # Export to JSONL
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"synthetic_data_{topic.replace(' ', '_')}_{timestamp}.jsonl"
+        # Sanitize topic for filename (remove invalid characters)
+        import re
+        import os
+        safe_topic = re.sub(r'[<>:"/\\|?*]', '', topic)  # Remove invalid chars
+        safe_topic = safe_topic.replace(' ', '_')  # Replace spaces with underscores
+        safe_topic = safe_topic[:50]  # Limit length to avoid overly long filenames
+        filename = f"synthetic_data_{safe_topic}_{timestamp}.jsonl"
 
-        with open(filename, 'w', encoding='utf-8') as f:
+        # Convert to absolute path for reliable downloads in deployed environments
+        absolute_filepath = os.path.abspath(filename)
+
+        with open(absolute_filepath, 'w', encoding='utf-8') as f:
             for entry in synthetic_dataset:
                 f.write(json.dumps(entry) + '\n')
 
@@ -683,11 +771,11 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
             metadata_display += f"  - {tier}: {count}\n"
         metadata_display += f"\n📁 Saved to: {filename}\n"
 
-        yield center_preview, log, metadata_display
+        yield center_preview, log, metadata_display, absolute_filepath
 
     except Exception as e:
         error_log = log + f"\n\n❌ Error during generation: {str(e)}\n\nPlease try again."
-        yield center_preview, error_log, metadata_display
+        yield center_preview, error_log, metadata_display, None
 
 
 def run_multi_agent_debate():
@@ -1586,7 +1674,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         /* Synthetic controls panel specific styling */
         #synthetic-controls-panel {
             border-radius: 4px !important;
-            background-color: #0F0F0F !important;
+            background-color: #111111 !important;
             color: #e5e7eb !important;
             border: 1px solid #444444 !important;
             padding: 10px 16px 16px 16px !important;
@@ -1812,6 +1900,21 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             border-color: #6366f1 !important;
             color: #6366f1 !important;
         }
+
+        #download-btn[disabled],
+        #download-btn.disabled {
+            cursor: not-allowed !important;
+            opacity: 0.4 !important;
+            border-color: #444444 !important;
+            color: #666666 !important;
+        }
+
+        #download-btn[disabled]:hover,
+        #download-btn.disabled:hover {
+            background-color: #0f0f0f !important;
+            border-color: #444444 !important;
+            color: #666666 !important;
+        }
     </style>
     <script>
         // Scroll textareas to top after content updates
@@ -1945,7 +2048,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             variant="secondary",
             scale=0,
             min_width=55,
-            elem_id="download-btn"
+            elem_id="download-btn",
+            interactive=False
         )
 
         # Version History button
@@ -1997,8 +2101,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             gr.Markdown("=" * 36, elem_id="divider-4")
 
             length_dropdown = gr.Dropdown(
-                choices=["Brief", "Standard", "Long"],
-                value="Standard",
+                choices=["Brief (75-100)", "Standard (175-200)", "Long (275-300)"],
+                value="Standard (175-200)",
                 label="Article Length",
                 info="Target word count range",
                 elem_id="length-dropdown"
@@ -2048,38 +2152,47 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     version_state = gr.HTML(value="", visible=False,
                             elem_id="version-state-holder")
 
+    # State to store download file path
+    download_file_state = gr.State(value=None)
+
+    # Hidden File component for downloads
+    download_file = gr.File(visible=False, interactive=False)
+
     # Route action button to correct function based on dropdown
     def execute_action(selected_tool, topic, user_feedback, num_examples, quality_dist, flaw_type, article_length):
         if selected_tool == "Article Generation":
             # Generate article - yields to (center, left, right)
             for center, left, right in generate_initial_article(topic):
-                yield center, left, left, right  # Duplicate left for both panels
+                yield center, left, left, right, None, gr.update(interactive=False)  # Duplicate left for both panels, no download file
         elif selected_tool == "Multi-Agent Debate":
             # Run debate
             for center, left, right in run_multi_agent_debate():
-                yield center, left, left, right
+                yield center, left, left, right, None, gr.update(interactive=False)
         elif selected_tool == "Self-Critique":
             # Run self-critique
             for center, left, right in run_self_critique():
-                yield center, left, left, right
+                yield center, left, left, right, None, gr.update(interactive=False)
         elif selected_tool == "User Feedback":
             # Process user feedback
             for center, left, right in run_user_feedback(user_feedback):
-                yield center, left, left, right
+                yield center, left, left, right, None, gr.update(interactive=False)
         elif selected_tool == "Synthetic Data":
-            # Generate synthetic training data - yields to (center, synthetic_log, right)
-            for center, synth_log, right in run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
-                yield center, "", synth_log, right  # Empty string for left_panel, actual log for synthetic_log
+            # Generate synthetic training data - yields to (center, synthetic_log, right, filename)
+            for center, synth_log, right, filename in run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
+                # Enable download button when filename is available
+                download_enabled = filename is not None
+                yield center, "", synth_log, right, filename, gr.update(interactive=download_enabled)  # Empty string for left_panel, actual log for synthetic_log
         else:
             # Placeholder for other tools
             error_msg = f"⚠️ {selected_tool} not yet implemented."
-            yield "", error_msg, error_msg, ""
+            yield "", error_msg, error_msg, "", None, gr.update(interactive=False)
 
     # Trigger action on Enter key in topic input (same behavior as action button)
     topic_input.submit(
         fn=execute_action,
         inputs=[epistemic_dropdown, topic_input, left_panel, num_examples_number, quality_dropdown, flaw_dropdown, length_dropdown],
-        outputs=[article_display, left_panel, synthetic_log, right_panel]
+        outputs=[article_display, left_panel, synthetic_log, right_panel, download_file_state, download_btn],
+        show_progress="hidden"
     ).then(
         fn=update_version_history,
         inputs=[article_display, left_panel, right_panel],
@@ -2194,6 +2307,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         show_synthetic_panel = (selected_tool == "Synthetic Data")
         show_normal_left = not show_synthetic_panel
 
+        # Disable download button when switching away from Synthetic Data
+        download_btn_enabled = False  # Always disabled when switching tools (will be enabled after generation completes)
+
         # For User Feedback, clear value and use placeholder; for others, use value
         if selected_tool == "User Feedback":
             return (
@@ -2202,7 +2318,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 gr.update(value=center_placeholder),
                 gr.update(value="", placeholder=left_panel_placeholder, interactive=left_interactive, visible=show_normal_left),
                 gr.update(value=right_placeholder),
-                gr.update(visible=show_synthetic_panel)  # synthetic_left_panel
+                gr.update(visible=show_synthetic_panel),  # synthetic_left_panel
+                gr.update(interactive=download_btn_enabled)  # download_btn
             )
         else:
             return (
@@ -2211,7 +2328,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 gr.update(value=center_placeholder),
                 gr.update(value=left_placeholder, interactive=left_interactive, visible=show_normal_left),
                 gr.update(value=right_placeholder),
-                gr.update(visible=show_synthetic_panel)  # synthetic_left_panel
+                gr.update(visible=show_synthetic_panel),  # synthetic_left_panel
+                gr.update(interactive=download_btn_enabled)  # download_btn
             )
 
     epistemic_dropdown.change(
@@ -2219,22 +2337,31 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         inputs=[epistemic_dropdown, topic_input],
         outputs=[action_button, topic_input,
                  article_display, left_panel, right_panel,
-                 synthetic_left_panel]
+                 synthetic_left_panel, download_btn],
+        show_progress="hidden"
     )
 
     # Update button state when topic changes (for Synthetic Data page)
+    # Only update action button, don't re-render panels to prevent flashing
+    def update_button_on_topic_change(selected_tool, topic):
+        # Only enable/disable action button based on topic content
+        if selected_tool == "Synthetic Data":
+            button_disabled = not topic or topic.strip() == ""
+            return gr.update(interactive=not button_disabled)
+        return gr.update()
+
     topic_input.change(
-        fn=update_ui_state,
+        fn=update_button_on_topic_change,
         inputs=[epistemic_dropdown, topic_input],
-        outputs=[action_button, topic_input,
-                 article_display, left_panel, right_panel,
-                 synthetic_left_panel]
+        outputs=[action_button],
+        show_progress="hidden"
     )
 
     action_button.click(
         fn=execute_action,
         inputs=[epistemic_dropdown, topic_input, left_panel, num_examples_number, quality_dropdown, flaw_dropdown, length_dropdown],
-        outputs=[article_display, left_panel, synthetic_log, right_panel]
+        outputs=[article_display, left_panel, synthetic_log, right_panel, download_file_state, download_btn],
+        show_progress="hidden"
     ).then(
         fn=update_version_history,
         inputs=[article_display, left_panel, right_panel],
@@ -2253,6 +2380,31 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 versionList.innerHTML = versionHtml;
             }
         }"""
+    )
+
+    # Download button click handler
+    def trigger_download(filepath):
+        """Return the file path for download."""
+        if filepath and filepath.strip():
+            return filepath
+        return None
+
+    download_btn.click(
+        fn=trigger_download,
+        inputs=[download_file_state],
+        outputs=[download_file]
+    )
+
+    # Auto-set flaw type to "Auto" and disable when quality is "Excellent"
+    def update_flaw_type(quality_selection):
+        if quality_selection == "Excellent":
+            return gr.update(value="Auto", interactive=False)
+        return gr.update(interactive=True)
+
+    quality_dropdown.change(
+        fn=update_flaw_type,
+        inputs=[quality_dropdown],
+        outputs=[flaw_dropdown]
     )
 
     # Version History button click handler
