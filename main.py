@@ -980,7 +980,7 @@ def generate_initial_article(topic: str):
     # Show loading message in right panel
     loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
         "\n\nSearching web for sources...\n\nSources will appear here when article generation is complete."
-    yield article_placeholder, status_log, loading_message  # (center, left, right)
+    yield article_placeholder, status_log, loading_message, None  # (center, left, right, filepath)
 
     # Initialize variables
     source_notes = []
@@ -1020,7 +1020,7 @@ Format the article in clean markdown."""
         chat.append(user(prompt))
 
         status_log += "📝 Generating article with live web search...\n\n"
-        yield article_placeholder, status_log, loading_message
+        yield article_placeholder, status_log, loading_message, None
 
         # Stream the article generation
         article_content = ""
@@ -1036,8 +1036,8 @@ Format the article in clean markdown."""
                 streaming_article += "=" * 44 + "\n\n"
                 streaming_article += article_content
 
-                # Yield: center (streaming article), left (status log), right (loading)
-                yield streaming_article, status_log, loading_message
+                # Yield: center (streaming article), left (status log), right (loading), filepath
+                yield streaming_article, status_log, loading_message, None
 
         # Extract the actual cited URL from the article text (more reliable than response.citations)
         # response.citations returns ALL URLs encountered, not just the ones used
@@ -1109,7 +1109,7 @@ Format the article in clean markdown."""
     if not current_sources:
         used_fallback = True
         status_log += "⏳ Falling back to Wikipedia...\n\n"
-        yield article_placeholder, status_log, loading_message
+        yield article_placeholder, status_log, loading_message, None
 
         wiki_data = fetch_wikipedia(topic)
 
@@ -1142,7 +1142,7 @@ Format the article in clean markdown."""
     # If we used fallback, need to regenerate article with Wikipedia context
     if used_fallback and current_sources:
         status_log += "📝 Generating article with Wikipedia source...\n\n"
-        yield article_placeholder, status_log, streaming_sources_display
+        yield article_placeholder, status_log, streaming_sources_display, None
 
         try:
             fallback_chat = client.chat.create(model="grok-4-1-fast")
@@ -1180,12 +1180,12 @@ Format the article in clean markdown."""
                     streaming_article += "=" * 44 + "\n\n"
                     streaming_article += article_content
 
-                    yield streaming_article, status_log, streaming_sources_display
+                    yield streaming_article, status_log, streaming_sources_display, None
 
         except Exception as e:
             status_log += f"❌ Error generating article: {str(e)}\n\nPlease try again.\n"
             error_article = "📝 YOUR ARTICLE\n" + "=" * 44 + "\n\n❌ Error generating article. Please try again."
-            yield error_article, status_log, streaming_sources_display
+            yield error_article, status_log, streaming_sources_display, None
             return
 
     # Add header at the top
@@ -1204,8 +1204,24 @@ Format the article in clean markdown."""
     # Update status log to show completion
     status_log += "✅ Article generation complete!\n\n"
 
-    # Yield final result
-    yield final_article, status_log, streaming_sources_display
+    # Save article to file for download
+    import re
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_topic = re.sub(r'[<>:"/\\|?*]', '', topic)
+    safe_topic = safe_topic.replace(' ', '_')[:50]
+    filename = f"article_{safe_topic}_{timestamp}.md"
+    filepath = os.path.abspath(filename)
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(article_content)
+    except Exception as e:
+        print(f"Error saving article: {e}")
+        filepath = None
+
+    # Yield final result with filepath for download
+    yield final_article, status_log, streaming_sources_display, filepath
 
 
 # Dark theme
@@ -2144,9 +2160,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     # Route action button to correct function based on dropdown
     def execute_action(selected_tool, topic, user_feedback, num_examples, quality_dist, flaw_type, article_length):
         if selected_tool == "Article Generation":
-            # Generate article - yields to (center, left, right)
-            for center, left, right in generate_initial_article(topic):
-                yield center, left, left, right, None, gr.update(interactive=False)  # Duplicate left for both panels, no download file
+            # Generate article - yields to (center, left, right, filepath)
+            for center, left, right, filepath in generate_initial_article(topic):
+                download_enabled = filepath is not None
+                yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
         elif selected_tool == "Multi-Agent Debate":
             # Run debate
             for center, left, right in run_multi_agent_debate():
