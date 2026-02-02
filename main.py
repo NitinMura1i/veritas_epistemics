@@ -779,31 +779,131 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
         yield center_preview, error_log, metadata_display, None
 
 
+def generate_edit_log(original: str, revised: str) -> str:
+    """Generate a structured edit log comparing original and revised text.
+
+    Shows each change with strikethrough on changed words in original,
+    down arrow, then the revised version.
+    """
+    import difflib
+
+    # Split into sentences for comparison
+    def split_sentences(text):
+        import re
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        return [s.strip() for s in sentences if s.strip()]
+
+    def get_word_diff(orig_sent: str, rev_sent: str) -> tuple:
+        """Compare two sentences word-by-word and return formatted versions.
+
+        Returns (original_with_strikethrough, revised_sentence)
+        """
+        orig_words = orig_sent.split()
+        rev_words = rev_sent.split()
+
+        matcher = difflib.SequenceMatcher(None, orig_words, rev_words)
+
+        # Build original with strikethrough on changed/deleted words
+        orig_formatted = []
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+            if tag == 'equal':
+                orig_formatted.extend(orig_words[i1:i2])
+            elif tag == 'replace' or tag == 'delete':
+                # Strikethrough the changed/deleted words
+                for word in orig_words[i1:i2]:
+                    orig_formatted.append(f"~~{word}~~")
+
+        return ' '.join(orig_formatted), rev_sent
+
+    original_sentences = split_sentences(original)
+    revised_sentences = split_sentences(revised)
+
+    # Use SequenceMatcher to find which sentences changed
+    matcher = difflib.SequenceMatcher(None, original_sentences, revised_sentences)
+
+    changes = []
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'replace':
+            # Sentences were modified - do word-level diff
+            for orig, rev in zip(original_sentences[i1:i2], revised_sentences[j1:j2]):
+                # Only show if there's actually a difference
+                if orig != rev:
+                    orig_formatted, rev_formatted = get_word_diff(orig, rev)
+                    changes.append((orig_formatted, rev_formatted))
+        elif tag == 'delete':
+            # Sentences were removed entirely
+            for sent in original_sentences[i1:i2]:
+                changes.append((f"~~{sent}~~", "_[Removed]_"))
+        elif tag == 'insert':
+            # New sentences were added
+            for sent in revised_sentences[j1:j2]:
+                changes.append(("_[New]_", sent))
+
+    # Build the edit log display
+    edit_log = "📝 EDIT LOG\n"
+    edit_log += "=" * 44 + "\n\n"
+
+    if changes:
+        for i, (orig, rev) in enumerate(changes[:8]):  # Limit to 8 changes
+            edit_log += f"{orig}\n\n"
+            edit_log += "↓\n\n"
+            edit_log += f"{rev}\n\n"
+            edit_log += "-" * 44 + "\n\n"
+
+        if len(changes) > 8:
+            edit_log += f"_...and {len(changes) - 8} more changes_\n\n"
+
+        edit_log += f"**Total: {len(changes)} changes made**\n"
+    else:
+        edit_log += "_No significant changes detected._\n"
+
+    return edit_log
+
+
 def run_multi_agent_debate():
-    """Run multi-agent debate on current article."""
+    """Run multi-agent debate on current article.
+
+    Layout:
+    - Left panel: Debate transcript
+    - Center panel: Original article → Revised article (transitions)
+    - Right panel: Edit log (shows what changed)
+    """
     global current_article_clean, current_grounding_context, article_history, original_article
 
     if not current_article_clean:
         error_msg = "⚠️ No article to debate. Please generate an article first."
-        return original_article, error_msg, ""
+        return error_msg, "", ""
 
-    # Left panel: original article (before any debates)
-    left_display = "📄 ORIGINAL ARTICLE\n"
-    left_display += "=" * 44 + "\n\n"
-    left_display += original_article
+    # Store original for comparison later
+    original_for_diff = current_article_clean
 
-    # Center panel: debate transcript (progressive updates)
-    debate_transcript = "🎭 MULTI-AGENT DEBATE\n"
+    # Center panel: original article (will transition to revised at end)
+    center_display = "📄 ORIGINAL ARTICLE\n"
+    center_display += "=" * 44 + "\n\n"
+    center_display += original_article
+
+    # Left panel: debate transcript (progressive updates)
+    debate_transcript = "🎭 DEBATE TRANSCRIPT\n"
     debate_transcript += "=" * 44 + "\n\n"
     debate_transcript += "⏳ Initializing debate agents...\n\n"
 
-    yield left_display, debate_transcript, ""
+    # Right panel: edit log placeholder
+    edit_log_placeholder = "📝 EDIT LOG\n"
+    edit_log_placeholder += "=" * 44 + "\n\n"
+    edit_log_placeholder += "Changes will appear here after the debate concludes.\n\n"
+    edit_log_placeholder += "The arbiter will synthesize the debate into a revised article, "
+    edit_log_placeholder += "and this panel will show exactly what was changed."
+
+    yield debate_transcript, center_display, edit_log_placeholder
 
     # Agent 1: Defender
+    debate_transcript = "🎭 DEBATE TRANSCRIPT\n"
+    debate_transcript += "=" * 44 + "\n\n"
     debate_transcript += "🟢 DEFENDER AGENT\n"
     debate_transcript += "-" * 44 + "\n"
     debate_transcript += "⏳ Analyzing article for strengths...\n\n"
-    yield left_display, debate_transcript, ""
+    yield debate_transcript, center_display, edit_log_placeholder
 
     try:
         defender_chat = client.chat.create(model="grok-4-1-fast-reasoning")
@@ -811,30 +911,29 @@ def run_multi_agent_debate():
             "You are the Defender agent in an epistemic debate. Your role is to identify the strongest "
             "epistemic qualities of the article: appropriate certainty language, balanced framing, "
             "acknowledgment of limitations, and clear communication. Argue for what the article does well "
-            "in terms of epistemic integrity. Be rigorous but fair. Provide a concise defense (~200 words)."
+            "in terms of epistemic integrity. Be rigorous but fair. Provide a concise defense (~150 words)."
         ))
         defender_chat.append(user(
             f"Defend the epistemic strengths of this article:\n\n{current_article_clean}"))
 
         # Stream Defender response
         defender_response = ""
-        debate_base = "🎭 MULTI-AGENT DEBATE\n" + "=" * 44 + \
-            "\n\n⏳ Initializing debate agents...\n\n🟢 DEFENDER AGENT\n" + "-" * 44 + "\n"
+        debate_base = "🎭 DEBATE TRANSCRIPT\n" + "=" * 44 + "\n\n🟢 DEFENDER AGENT\n" + "-" * 44 + "\n"
 
         for response, chunk in defender_chat.stream():
             if chunk.content:
                 defender_response += chunk.content
                 streaming_transcript = debate_base + defender_response
-                yield left_display, streaming_transcript, ""
+                yield streaming_transcript, center_display, edit_log_placeholder
 
         debate_transcript = debate_base + f"{defender_response}\n\n\n"
-        yield left_display, debate_transcript, ""
+        yield debate_transcript, center_display, edit_log_placeholder
 
         # Agent 2: Challenger
         debate_transcript += "🔴 CHALLENGER AGENT\n"
         debate_transcript += "-" * 44 + "\n"
         debate_transcript += "⏳ Analyzing article for weaknesses...\n\n"
-        yield left_display, debate_transcript, ""
+        yield debate_transcript, center_display, edit_log_placeholder
 
         challenger_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         challenger_chat.append(system(
@@ -842,29 +941,29 @@ def run_multi_agent_debate():
             "the article for epistemic weaknesses: overstatements, unwarranted certainty, missing caveats, "
             "one-sided framing, lack of epistemic humility, or unclear communication. Focus on how claims "
             "are presented, not their factual accuracy. Be aggressive but fair. Point out specific issues. "
-            "Provide a concise critique (~200 words)."
+            "Provide a concise critique (~150 words)."
         ))
         challenger_chat.append(user(
             f"Challenge the epistemic quality of this article:\n\n{current_article_clean}"))
 
         # Stream Challenger response
         challenger_response = ""
-        challenger_base = debate_transcript + "🔴 CHALLENGER AGENT\n" + "-" * 44 + "\n"
+        challenger_base = debate_transcript[:-len("⏳ Analyzing article for weaknesses...\n\n")]
 
         for response, chunk in challenger_chat.stream():
             if chunk.content:
                 challenger_response += chunk.content
                 streaming_transcript = challenger_base + challenger_response
-                yield left_display, streaming_transcript, ""
+                yield streaming_transcript, center_display, edit_log_placeholder
 
         debate_transcript = challenger_base + f"{challenger_response}\n\n\n"
-        yield left_display, debate_transcript, ""
+        yield debate_transcript, center_display, edit_log_placeholder
 
         # Agent 3: Arbiter (produces revised article)
         debate_transcript += "⚖️ ARBITER AGENT\n"
         debate_transcript += "-" * 44 + "\n"
         debate_transcript += "⏳ Synthesizing debate and producing revised article...\n\n"
-        yield left_display, debate_transcript, ""
+        yield debate_transcript, center_display, edit_log_placeholder
 
         arbiter_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         arbiter_chat.append(system(
@@ -888,27 +987,30 @@ Challenger's criticisms:
 
 Produce the final revised article."""))
 
-        # Stream Arbiter's revised article to RIGHT panel
+        # Stream Arbiter's revised article to CENTER panel (replacing original)
         revised_article = ""
-        arbiter_header = "📝 REVISED ARTICLE\n" + "=" * 44 + "\n\n"
+        revised_header = "📝 REVISED ARTICLE\n" + "=" * 44 + "\n\n"
+
+        # Show "generating" in edit log
+        generating_edit_log = "📝 EDIT LOG\n"
+        generating_edit_log += "=" * 44 + "\n\n"
+        generating_edit_log += "⏳ Generating revised article...\n\n"
+        generating_edit_log += "Edit log will be computed once revision is complete."
 
         for response, chunk in arbiter_chat.stream():
             if chunk.content:
                 revised_article += chunk.content
-                streaming_right = arbiter_header + revised_article
-                yield left_display, debate_transcript, streaming_right
+                streaming_center = revised_header + revised_article
+                yield debate_transcript, streaming_center, generating_edit_log
+
+        # Generate the edit log by comparing original and revised
+        edit_log = generate_edit_log(original_for_diff, revised_article)
 
         # Add completion message to debate transcript
-        debate_transcript += "⚖️ ARBITER AGENT\n"
-        debate_transcript += "-" * 44 + "\n"
-        debate_transcript += "✅ Debate complete! Revised article generated.\n\n"
-        debate_transcript += "**Key improvements:**\n"
-        debate_transcript += "- Incorporated Defender's supporting evidence\n"
-        debate_transcript += "- Addressed Challenger's valid criticisms\n"
-        debate_transcript += "- Added epistemic qualifiers where appropriate\n"
+        debate_transcript += "✅ Debate complete! Revised article generated.\n"
 
-        # Right panel: revised article (already streamed, just format final version)
-        right_display = arbiter_header + revised_article
+        # Center panel: final revised article
+        final_center = revised_header + revised_article
 
         # Update current article to the revision for iterative debates
         current_article_clean = revised_article
@@ -916,15 +1018,15 @@ Produce the final revised article."""))
         # Store revised article in history
         final_article = f"📝 REVISED ARTICLE (Post-Debate)\n"
         final_article += "=" * 44 + "\n\n"
-        final_article += f"__Epistemically refined through multi-agent debate__\n\n---\n\n{revised_article}"
+        final_article += revised_article
         article_history.append(final_article)
 
-        yield left_display, debate_transcript, right_display
+        yield debate_transcript, final_center, edit_log
 
     except Exception as e:
         error_transcript = debate_transcript + \
             f"\n\n❌ Error during debate: {str(e)}\n\nPlease try again."
-        yield left_display, error_transcript, ""
+        yield error_transcript, center_display, edit_log_placeholder
 
 
 def fetch_content_from_url(url: str) -> Optional[Dict[str, str]]:
@@ -2165,8 +2267,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 download_enabled = filepath is not None
                 yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
         elif selected_tool == "Multi-Agent Debate":
-            # Run debate
-            for center, left, right in run_multi_agent_debate():
+            # Run debate - yields (left=transcript, center=article, right=edit_log)
+            for left, center, right in run_multi_agent_debate():
                 yield center, left, left, right, None, gr.update(interactive=False)
         elif selected_tool == "Self-Critique":
             # Run self-critique
@@ -2258,16 +2360,16 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             right_placeholder = "✨ REFINED ARTICLE\n" + "=" * 42 + "\n\nThis panel displays the epistemically refined version of your article:\n\n- Improved certainty language\n- Added qualifiers where needed\n- Balanced framing\n- Clearer communication\n- Enhanced epistemic integrity\n\nThe refined article will appear here after critique completes."
 
         elif selected_tool == "Multi-Agent Debate":
-            left_placeholder = "🎭 DEBATE TRANSCRIPT\n" + "=" * 42 + "\n\nThis panel displays the multi-agent debate transcript:\n\n- Defender: Argues for epistemic strengths\n- Challenger: Identifies epistemic weaknesses\n- Arbiter: Synthesizes debate into improvements\n\nThe debate process analyzes the article from multiple perspectives to produce a more balanced revision.\n\nClick 'Start Debate' to begin the multi-agent debate!"
+            left_placeholder = "🎭 DEBATE TRANSCRIPT\n" + "=" * 42 + "\n\nThis panel will show the debate between:\n• Defender: Argues for strengths\n• Challenger: Identifies weaknesses\n• Arbiter: Synthesizes improvements\n\nClick 'Start Debate' to begin!"
 
             # If article exists, show it with the "ORIGINAL ARTICLE" header
             if current_article_clean:
-                center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 42 + "\n\n" + current_article_clean
+                center_placeholder = "📄 ORIGINAL ARTICLE\n" + "=" * 42 + "\n\n" + current_article_clean
             else:
-                center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 42 + \
-                    "\n\nYour current article will be displayed here during the debate.\n\nThree agents will analyze its epistemic quality through structured debate."
+                center_placeholder = "📄 ORIGINAL ARTICLE\n" + "=" * 42 + \
+                    "\n\nYour article will appear here.\n\nAfter the debate, this will show the revised version."
 
-            right_placeholder = "📝 REVISED ARTICLE\n" + "=" * 42 + "\n\nThis panel displays the revised article produced by the Arbiter:\n\n- Incorporates Defender's supporting evidence\n- Addresses Challenger's valid criticisms\n- Adds epistemic qualifiers where appropriate\n- Balances competing perspectives\n\nThe revised article will appear here after debate completes."
+            right_placeholder = "📝 EDIT LOG\n" + "=" * 42 + "\n\nThis panel will show what changed:\n• Substitutions\n• Additions\n• Deletions\n\nEdit log appears after debate completes."
 
         elif selected_tool == "User Feedback":
             # Left panel becomes interactive for user input - use placeholder instead of value
