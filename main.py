@@ -971,15 +971,15 @@ def generate_initial_article(topic: str):
     # Status in left panel
     status_log = "🔍 PROCESS LOG\n"
     status_log += "=" * 44 + "\n\n"
-    status_log += "⏳ Searching the web for relevant sources...\n\n"
+    status_log += "🔎 Searching the web for relevant sources...\n\n"
 
     # Show loading message in center panel
     article_placeholder = "📝 YOUR ARTICLE\n" + "=" * 44 + \
-        "\n\n⏳ Your generated article will appear shortly..."
+        "\n\nYour generated article will appear shortly..."
 
     # Show loading message in right panel
     loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
-        "\n\n⏳ Searching web for sources...\n\nSources will appear here when article generation is complete."
+        "\n\nSearching web for sources...\n\nSources will appear here when article generation is complete."
     yield article_placeholder, status_log, loading_message  # (center, left, right)
 
     # Initialize variables
@@ -1019,7 +1019,7 @@ Format the article in clean markdown."""
 
         chat.append(user(prompt))
 
-        status_log += "⏳ Generating article with live web search...\n\n"
+        status_log += "📝 Generating article with live web search...\n\n"
         yield article_placeholder, status_log, loading_message
 
         # Stream the article generation
@@ -1039,13 +1039,25 @@ Format the article in clean markdown."""
                 # Yield: center (streaming article), left (status log), right (loading)
                 yield streaming_article, status_log, loading_message
 
-        # Extract citations from the final response (limit to 1)
-        citations = []
-        if final_response and hasattr(final_response, 'citations') and final_response.citations:
+        # Extract the actual cited URL from the article text (more reliable than response.citations)
+        # response.citations returns ALL URLs encountered, not just the ones used
+        import re
+        cited_urls = re.findall(r'\]\((https?://[^\)]+)\)', article_content)
+        # Deduplicate while preserving order
+        seen = set()
+        unique_cited_urls = []
+        for url in cited_urls:
+            if url not in seen:
+                seen.add(url)
+                unique_cited_urls.append(url)
+
+        # Use the first actually-cited URL, or fall back to response.citations
+        citations = unique_cited_urls[:1] if unique_cited_urls else []
+        if not citations and final_response and hasattr(final_response, 'citations') and final_response.citations:
             citations = list(final_response.citations)[:1]
 
         if citations:
-            status_log += "✅ Found web source\n\n"
+            status_log += "📄 Found web source\n\n"
 
             # Fetch content from the source URL
             url = citations[0]
@@ -1063,7 +1075,6 @@ Format the article in clean markdown."""
                 if len(words) > 250:
                     truncated_content += "..."
 
-                streaming_sources_display += f"**{source_data['title']}**\n\n"
                 streaming_sources_display += f"Source: {url}\n\n"
                 streaming_sources_display += "-" * 44 + "\n\n"
                 streaming_sources_display += truncated_content
@@ -1130,7 +1141,7 @@ Format the article in clean markdown."""
 
     # If we used fallback, need to regenerate article with Wikipedia context
     if used_fallback and current_sources:
-        status_log += "⏳ Generating article with Wikipedia source...\n\n"
+        status_log += "📝 Generating article with Wikipedia source...\n\n"
         yield article_placeholder, status_log, streaming_sources_display
 
         try:
@@ -2085,7 +2096,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Normal left panel - Process log and status (visible for all tools EXCEPT Synthetic Data)
         left_panel = gr.Textbox(
-            value="🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Web search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the arrow to begin!",
+            value="🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!",
             lines=30,
             interactive=False,
             show_copy_button=False,
@@ -2098,7 +2109,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         # Central article (always visible and centered!)
         article_display = gr.Textbox(
             value="📝 YOUR ARTICLE\n" + "=" * 42 +
-            "\n\nYour generated article will appear here.\n\nIterate it in order to get as close to the truth as you can!",
+            "\n\nYour generated article will appear here.\n\nKnowledge incoming!",
             lines=30,
             interactive=False,
             show_copy_button=False,
@@ -2110,7 +2121,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         # Right panel - Source material (Web Sources)
         right_panel = gr.Textbox(
             value="📚 SOURCE MATERIAL\n" + "=" * 42 +
-            "\n\nThis panel displays sources used to generate your article:\n\n- Web sources (via live search)\n- Wikipedia (fallback)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation.",
+            "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation.",
             lines=30,
             interactive=False,
             show_copy_button=False,
@@ -2211,11 +2222,11 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Set placeholder content for panels based on selected tool
         if selected_tool == "Article Generation":
-            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel displays real-time status updates during article generation:\n\n- Web search progress\n- Source retrieval status\n- Article generation steps\n- Completion notifications\n\nEnter a topic and click the button to begin!"
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!"
             center_placeholder = "📝 YOUR ARTICLE\n" + "=" * 42 + \
-                "\n\nYour generated article will appear here.\n\nIterate it in order to get as close to the truth as you can!"
+                "\n\nYour generated article will appear here.\n\nKnowledge incoming!"
             right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 42 + \
-                "\n\nThis panel displays sources used to generate your article:\n\n- Web sources (via live search)\n- Wikipedia (fallback)\n- Source URLs and titles\n- Reference material for verification\n\nSources will appear here after article generation."
+                "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation."
 
         elif selected_tool == "Self-Critique":
             left_placeholder = "🔍 CRITIQUE ANALYSIS\n" + "=" * 42 + "\n\nThis panel displays the critical analysis of your article:\n\n- Epistemic quality assessment\n- Identification of overstatements\n- Analysis of certainty language\n- Detection of missing qualifiers\n- Suggestions for improvement\n\nClick 'Critique Article' to begin the self-critique process!"
