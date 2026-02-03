@@ -135,14 +135,23 @@ def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
 
 
 def run_self_critique():
-    """Run self-critique with chain-of-thought analysis streaming."""
+    """Run self-critique with chain-of-thought analysis streaming.
+
+    Layout (matches Multi-Agent Debate):
+    - Left panel: Critique analysis
+    - Center panel: Original article → Refined article (transitions)
+    - Right panel: Edit log (shows what changed)
+    """
     global current_article_clean, current_grounding_context, article_history, original_article
 
     if not current_article_clean:
         error_msg = "⚠️ No article to critique. Please generate an article first."
-        return original_article, error_msg, ""
+        return error_msg, "", ""
 
-    # Center panel: original article (before critique)
+    # Store original for comparison later
+    original_for_diff = current_article_clean
+
+    # Center panel: original article (will transition to refined at end)
     center_display = "📄 ORIGINAL ARTICLE\n"
     center_display += "=" * 44 + "\n\n"
     center_display += original_article
@@ -150,9 +159,16 @@ def run_self_critique():
     # Left panel: critique analysis (streaming)
     critique_analysis = "🔍 SELF-CRITIQUE ANALYSIS\n"
     critique_analysis += "=" * 44 + "\n\n"
-    critique_analysis += "⏳ Analyzing article for epistemic issues...\n\n"
+    critique_analysis += "🔎 Analyzing article for epistemic issues...\n\n"
 
-    yield center_display, critique_analysis, ""
+    # Right panel: edit log placeholder
+    edit_log_placeholder = "📝 EDIT LOG\n"
+    edit_log_placeholder += "=" * 44 + "\n\n"
+    edit_log_placeholder += "Changes will appear here after critique completes.\n\n"
+    edit_log_placeholder += "The refined article will be compared to the original, "
+    edit_log_placeholder += "and this panel will show exactly what was changed."
+
+    yield critique_analysis, center_display, edit_log_placeholder
 
     try:
         # Step 1: Generate critique analysis with streaming
@@ -187,14 +203,14 @@ def run_self_critique():
                 critique_analysis_display = "🔍 SELF-CRITIQUE ANALYSIS\n"
                 critique_analysis_display += "=" * 44 + "\n\n"
                 critique_analysis_display += full_critique
-                yield center_display, critique_analysis_display, ""
+                yield critique_analysis_display, center_display, edit_log_placeholder
 
         # Step 2: Generate refined article based on critique
         critique_analysis_display = "🔍 SELF-CRITIQUE ANALYSIS\n"
         critique_analysis_display += "=" * 44 + "\n\n"
         critique_analysis_display += full_critique + "\n\n"
         critique_analysis_display += "✓ Analysis complete. Generating refined article...\n"
-        yield center_display, critique_analysis_display, ""
+        yield critique_analysis_display, center_display, edit_log_placeholder
 
         refinement_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         refinement_chat.append(system(
@@ -212,20 +228,23 @@ def run_self_critique():
             f"Produce the refined article addressing these concerns."
         ))
 
-        # Right panel: refined article (streaming)
-        right_display = "📝 REFINED ARTICLE\n"
-        right_display += "=" * 44 + "\n\n"
-        right_display += "⏳ Generating refined version...\n\n"
-        yield center_display, critique_analysis_display, right_display
+        # Show generating status in edit log
+        generating_edit_log = "📝 EDIT LOG\n"
+        generating_edit_log += "=" * 44 + "\n\n"
+        generating_edit_log += "Generating refined article...\n\n"
+        generating_edit_log += "Edit log will be computed once refinement is complete."
 
+        # Stream refined article to CENTER panel (replacing original)
+        refined_header = "📝 REFINED ARTICLE\n" + "=" * 44 + "\n\n"
         refined_article = ""
         for response, chunk in refinement_chat.stream():
             if chunk.content:
                 refined_article += chunk.content
-                refined_display = "📝 REFINED ARTICLE\n"
-                refined_display += "=" * 44 + "\n\n"
-                refined_display += refined_article
-                yield center_display, critique_analysis_display, refined_display
+                streaming_center = refined_header + refined_article
+                yield critique_analysis_display, streaming_center, generating_edit_log
+
+        # Generate the edit log by comparing original and revised
+        edit_log = generate_edit_log(original_for_diff, refined_article)
 
         # Update current article for iterative critiques
         current_article_clean = refined_article
@@ -242,12 +261,13 @@ def run_self_critique():
         final_critique_display += full_critique + "\n\n"
         final_critique_display += "✅ Critique complete! Refined article generated."
 
-        yield center_display, final_critique_display, refined_display
+        final_center = refined_header + refined_article
+        yield final_critique_display, final_center, edit_log
 
     except Exception as e:
         error_analysis = critique_analysis + \
             f"\n\n❌ Error during critique: {str(e)}\n\nPlease try again."
-        yield center_display, error_analysis, ""
+        yield error_analysis, center_display, edit_log_placeholder
 
 
 def run_user_feedback(user_feedback):
@@ -274,7 +294,8 @@ def run_user_feedback(user_feedback):
     processing_msg = "⏳ Processing your feedback...\n\nValidating suggestions against source material..."
 
     # Right panel: placeholder during processing
-    right_placeholder = "📋 CHANGELOG\n" + "=" * 44 + "\n\n⏳ Processing...\n\nChangelog will appear here."
+    right_placeholder = "📋 CHANGELOG\n" + "=" * 44 + \
+        "\n\n⏳ Processing...\n\nChangelog will appear here."
 
     yield center_display, processing_msg, right_placeholder
 
@@ -565,7 +586,8 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
             yield center_preview, log, metadata_display, None
 
             # Generate article with controlled epistemic quality
-            generator_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+            generator_chat = client.chat.create(
+                model="grok-4-1-fast-reasoning")
 
             # Craft prompt based on target quality and specific flaw type
             if quality == "excellent":
@@ -647,7 +669,8 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
                     # Show currently streaming article
                     temp_center_preview += f"**Example {i+1}/{num_examples}** (Quality: {quality.upper()}) - GENERATING...\n"
                     temp_center_preview += "-" * 44 + "\n\n"
-                    temp_center_preview += generated_article + "▌"  # Add cursor to show it's streaming
+                    temp_center_preview += generated_article + \
+                        "▌"  # Add cursor to show it's streaming
 
                     yield temp_center_preview, log, metadata_display, None
 
@@ -674,7 +697,8 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
                 "COMPLETENESS: [0-10]\n"
                 "FLAWS: [comma-separated list of specific issues]"
             ))
-            labeler_chat.append(user(f"Label this article:\n\n{generated_article}"))
+            labeler_chat.append(
+                user(f"Label this article:\n\n{generated_article}"))
 
             # Get labels
             label_response = ""
@@ -684,12 +708,17 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
 
             # Parse labels
             import re
-            source_quality = int(re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response).group(1)) if re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response) else 5
-            certainty = int(re.search(r'CERTAINTY:\s*(\d+)', label_response).group(1)) if re.search(r'CERTAINTY:\s*(\d+)', label_response) else 5
-            bias = int(re.search(r'BIAS:\s*(\d+)', label_response).group(1)) if re.search(r'BIAS:\s*(\d+)', label_response) else 5
-            completeness = int(re.search(r'COMPLETENESS:\s*(\d+)', label_response).group(1)) if re.search(r'COMPLETENESS:\s*(\d+)', label_response) else 5
+            source_quality = int(re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response).group(
+                1)) if re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response) else 5
+            certainty = int(re.search(r'CERTAINTY:\s*(\d+)', label_response).group(1)
+                            ) if re.search(r'CERTAINTY:\s*(\d+)', label_response) else 5
+            bias = int(re.search(r'BIAS:\s*(\d+)', label_response).group(1)
+                       ) if re.search(r'BIAS:\s*(\d+)', label_response) else 5
+            completeness = int(re.search(r'COMPLETENESS:\s*(\d+)', label_response).group(
+                1)) if re.search(r'COMPLETENESS:\s*(\d+)', label_response) else 5
             flaws_match = re.search(r'FLAWS:\s*(.+)', label_response)
-            flaws = flaws_match.group(1).strip() if flaws_match else "none identified"
+            flaws = flaws_match.group(1).strip(
+            ) if flaws_match else "none identified"
 
             # Store in dataset
             data_entry = {
@@ -739,8 +768,10 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
         import re
         import os
         safe_topic = re.sub(r'[<>:"/\\|?*]', '', topic)  # Remove invalid chars
-        safe_topic = safe_topic.replace(' ', '_')  # Replace spaces with underscores
-        safe_topic = safe_topic[:50]  # Limit length to avoid overly long filenames
+        # Replace spaces with underscores
+        safe_topic = safe_topic.replace(' ', '_')
+        # Limit length to avoid overly long filenames
+        safe_topic = safe_topic[:50]
         filename = f"synthetic_data_{safe_topic}_{timestamp}.jsonl"
 
         # Convert to absolute path for reliable downloads in deployed environments
@@ -768,59 +799,94 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
         metadata_display += f"Topic: {topic}\n"
         metadata_display += f"Quality distribution:\n"
         for tier in quality_tiers:
-            count = sum(1 for e in synthetic_dataset if e['target_quality'] == tier)
+            count = sum(
+                1 for e in synthetic_dataset if e['target_quality'] == tier)
             metadata_display += f"  - {tier}: {count}\n"
         metadata_display += f"\n📁 Saved to: {filename}\n"
 
         yield center_preview, log, metadata_display, absolute_filepath
 
     except Exception as e:
-        error_log = log + f"\n\n❌ Error during generation: {str(e)}\n\nPlease try again."
+        error_log = log + \
+            f"\n\n❌ Error during generation: {str(e)}\n\nPlease try again."
         yield center_preview, error_log, metadata_display, None
 
 
 def generate_edit_log(original: str, revised: str) -> str:
     """Generate a structured edit log comparing original and revised text.
 
-    Shows each change with (Original) and (Revised) labels.
+    Uses similarity-based matching to pair related sentences.
+    Truncates output for readability.
     """
-    import difflib
+    import re
 
     def split_sentences(text):
-        import re
         sentences = re.split(r'(?<=[.!?])\s+', text.strip())
         return [s.strip() for s in sentences if s.strip()]
 
+    def get_words(sentence):
+        return set(re.findall(r'\w+', sentence.lower()))
+
+    def similarity(sent1, sent2):
+        words1 = get_words(sent1)
+        words2 = get_words(sent2)
+        if not words1 or not words2:
+            return 0
+        intersection = words1 & words2
+        return len(intersection) / min(len(words1), len(words2))
+
+    def truncate(text, max_len=100):
+        if len(text) <= max_len:
+            return text
+        return text[:max_len-3] + "..."
+
     original_sentences = split_sentences(original)
     revised_sentences = split_sentences(revised)
-    matcher = difflib.SequenceMatcher(None, original_sentences, revised_sentences)
 
-    changes = []
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == 'replace':
-            for orig, rev in zip(original_sentences[i1:i2], revised_sentences[j1:j2]):
-                if orig != rev:
-                    changes.append((orig, rev))
-        elif tag == 'delete':
-            for sent in original_sentences[i1:i2]:
-                changes.append((sent, "[Removed]"))
-        elif tag == 'insert':
-            for sent in revised_sentences[j1:j2]:
-                changes.append(("[New]", sent))
+    matched_revised = set()
+    modifications = []
+    removed_count = 0
 
+    SIMILARITY_THRESHOLD = 0.35
+
+    # For each original sentence, find best match in revised
+    for orig in original_sentences:
+        best_match = None
+        best_score = 0
+        best_idx = -1
+
+        for idx, rev in enumerate(revised_sentences):
+            if idx in matched_revised:
+                continue
+            score = similarity(orig, rev)
+            if score > best_score:
+                best_score = score
+                best_match = rev
+                best_idx = idx
+
+        if best_score >= SIMILARITY_THRESHOLD and best_match:
+            matched_revised.add(best_idx)
+            if orig != best_match:
+                modifications.append((orig, best_match))
+        else:
+            removed_count += 1
+
+    # Build edit log
     edit_log = "📝 EDIT LOG\n"
     edit_log += "=" * 44 + "\n\n"
 
-    if changes:
-        for orig, rev in changes:
+    if modifications:
+        for orig, rev in modifications:
             edit_log += "                 (Original)\n"
-            edit_log += f"{orig}\n\n"
+            edit_log += f"{truncate(orig)}\n\n"
             edit_log += "                    ↓\n\n"
             edit_log += "                 (Revised)\n"
-            edit_log += f"{rev}\n\n"
+            edit_log += f"{truncate(rev)}\n\n"
             edit_log += "-" * 44 + "\n\n"
 
-        edit_log += f"Total: {len(changes)} changes made\n"
+    # Summary
+    if modifications:
+        edit_log += f"Total: {len(modifications)} edits\n"
     else:
         edit_log += "No significant changes detected.\n"
 
@@ -884,7 +950,8 @@ def run_multi_agent_debate():
 
         # Stream Defender response
         defender_response = ""
-        debate_base = "🎭 DEBATE TRANSCRIPT\n" + "=" * 44 + "\n\n🟢 DEFENDER AGENT\n" + "-" * 44 + "\n"
+        debate_base = "🎭 DEBATE TRANSCRIPT\n" + "=" * \
+            44 + "\n\n🟢 DEFENDER AGENT\n" + "-" * 44 + "\n"
 
         for response, chunk in defender_chat.stream():
             if chunk.content:
@@ -914,7 +981,8 @@ def run_multi_agent_debate():
 
         # Stream Challenger response
         challenger_response = ""
-        challenger_base = debate_transcript[:-len("⏳ Analyzing article for weaknesses...\n\n")]
+        challenger_base = debate_transcript[:-
+                                            len("⏳ Analyzing article for weaknesses...\n\n")]
 
         for response, chunk in challenger_chat.stream():
             if chunk.content:
@@ -960,7 +1028,7 @@ Produce the final revised article."""))
         # Show "generating" in edit log
         generating_edit_log = "📝 EDIT LOG\n"
         generating_edit_log += "=" * 44 + "\n\n"
-        generating_edit_log += "⏳ Generating revised article...\n\n"
+        generating_edit_log += "Generating revised article...\n\n"
         generating_edit_log += "Edit log will be computed once revision is complete."
 
         for response, chunk in arbiter_chat.stream():
@@ -1017,7 +1085,8 @@ def fetch_content_from_url(url: str) -> Optional[Dict[str, str]]:
             title = unquote(title)
 
             api_url = "https://en.wikipedia.org/w/api.php"
-            headers = {"User-Agent": "Veritas-Epistemics/1.0 (Educational Project)"}
+            headers = {
+                "User-Agent": "Veritas-Epistemics/1.0 (Educational Project)"}
             params = {
                 "action": "query",
                 "format": "json",
@@ -1025,7 +1094,8 @@ def fetch_content_from_url(url: str) -> Optional[Dict[str, str]]:
                 "prop": "extracts",
                 "explaintext": True
             }
-            response = requests.get(api_url, params=params, headers=headers, timeout=10)
+            response = requests.get(
+                api_url, params=params, headers=headers, timeout=10)
             data = response.json()
 
             pages = data.get("query", {}).get("pages", {})
@@ -1061,7 +1131,8 @@ def generate_initial_article(topic: str):
     # Show loading message in right panel
     loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
         "\n\nSearching web for sources...\n\nSources will appear here when article generation is complete."
-    yield article_placeholder, status_log, loading_message, None  # (center, left, right, filepath)
+    # (center, left, right, filepath)
+    yield article_placeholder, status_log, loading_message, None
 
     # Initialize variables
     source_notes = []
@@ -1205,9 +1276,10 @@ Format the article in clean markdown."""
             streaming_sources_display += f"{wiki_data['content'][:2500]}"
 
             source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"
-            source_notes.append(f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
+            source_notes.append(
+                f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
             current_sources = [{"name": wiki_data['title'], "type": "Wikipedia",
-                              "url": wiki_data['url'], "content": wiki_data['content']}]
+                                "url": wiki_data['url'], "content": wiki_data['content']}]
         else:
             status_log += f"⚠️ No Wikipedia article found for '{topic}'\n\n"
             source_context = f"No specific source found. Generating article about: {topic}"
@@ -1265,7 +1337,8 @@ Format the article in clean markdown."""
 
         except Exception as e:
             status_log += f"❌ Error generating article: {str(e)}\n\nPlease try again.\n"
-            error_article = "📝 YOUR ARTICLE\n" + "=" * 44 + "\n\n❌ Error generating article. Please try again."
+            error_article = "📝 YOUR ARTICLE\n" + "=" * 44 + \
+                "\n\n❌ Error generating article. Please try again."
             yield error_article, status_log, streaming_sources_display, None
             return
 
@@ -2181,7 +2254,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             gr.Markdown("=" * 36, elem_id="divider-4")
 
             length_dropdown = gr.Dropdown(
-                choices=["Brief (75-100)", "Standard (175-200)", "Long (275-300)"],
+                choices=["Brief (75-100)", "Standard (175-200)",
+                         "Long (275-300)"],
                 value="Standard (175-200)",
                 label="Article Length",
                 info="Target word count range",
@@ -2193,7 +2267,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Normal left panel - Process log and status (visible for all tools EXCEPT Synthetic Data)
         left_panel = gr.Textbox(
-            value="🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!",
+            value="🔍 PROCESS LOG\n" + "=" * 42 +
+            "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!",
             lines=30,
             interactive=False,
             show_copy_button=False,
@@ -2251,8 +2326,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 download_enabled = filepath is not None
                 yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
         elif selected_tool == "Self-Critique":
-            # Run self-critique
-            for center, left, right in run_self_critique():
+            # Run self-critique - yields (left=critique, center=article, right=edit_log)
+            for left, center, right in run_self_critique():
                 yield center, left, left, right, None, gr.update(interactive=False)
         elif selected_tool == "User Feedback":
             # Process user feedback
@@ -2263,7 +2338,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             for center, synth_log, right, filename in run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
                 # Enable download button when filename is available
                 download_enabled = filename is not None
-                yield center, "", synth_log, right, filename, gr.update(interactive=download_enabled)  # Empty string for left_panel, actual log for synthetic_log
+                # Empty string for left_panel, actual log for synthetic_log
+                yield center, "", synth_log, right, filename, gr.update(interactive=download_enabled)
         else:
             # Placeholder for other tools
             error_msg = f"⚠️ {selected_tool} not yet implemented."
@@ -2284,7 +2360,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         button_text = button_text_map.get(selected_tool, "Generate Article")
 
         # Disable topic input when epistemic tool is selected (except Synthetic Data which allows any topic)
-        topic_disabled = (selected_tool not in ["Article Generation", "Synthetic Data"])
+        topic_disabled = (selected_tool not in [
+                          "Article Generation", "Synthetic Data"])
 
         # Check if article exists for epistemic tools (Synthetic Data doesn't need an existing article)
         # For Synthetic Data, disable button if topic is empty
@@ -2295,35 +2372,42 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Set placeholder content for panels based on selected tool
         if selected_tool == "Article Generation":
-            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!"
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + \
+                "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!"
             center_placeholder = "📝 YOUR ARTICLE\n" + "=" * 42 + \
                 "\n\nYour generated article will appear here.\n\nKnowledge incoming!"
             right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 42 + \
                 "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation."
 
         elif selected_tool == "Self-Critique":
-            left_placeholder = "🔍 CRITIQUE ANALYSIS\n" + "=" * 42 + "\n\nThis panel displays the critical analysis of your article:\n\n- Epistemic quality assessment\n- Identification of overstatements\n- Analysis of certainty language\n- Detection of missing qualifiers\n- Suggestions for improvement\n\nClick 'Critique Article' to begin the self-critique process!"
+            left_placeholder = "🔍 CRITIQUE ANALYSIS\n" + "=" * 42 + \
+                "\n\nThis panel will show:\n\n• Epistemic quality assessment\n• Identification of issues\n• Suggestions for improvement\n\nClick 'Critique Article' to begin!"
 
             # If article exists, show it with the "ORIGINAL ARTICLE" header
             if current_article_clean:
-                center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 42 + "\n\n" + current_article_clean
+                center_placeholder = "📝 ORIGINAL ARTICLE\n" + \
+                    "=" * 42 + "\n\n" + current_article_clean
             else:
                 center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 42 + \
-                    "\n\nYour current article will be displayed here during the critique process.\n\nThe AI will analyze its epistemic quality and suggest improvements."
+                    "\n\nYour article will appear here.\n\nAfter the critique, this will show the revised version."
 
-            right_placeholder = "✨ REFINED ARTICLE\n" + "=" * 42 + "\n\nThis panel displays the epistemically refined version of your article:\n\n- Improved certainty language\n- Added qualifiers where needed\n- Balanced framing\n- Clearer communication\n- Enhanced epistemic integrity\n\nThe refined article will appear here after critique completes."
+            right_placeholder = "📝 EDIT LOG\n" + "=" * 42 + \
+                "\n\nThis panel will show what changed:\n\n• Substitutions\n• Additions\n• Deletions\n\nEdit log appears after critique completes."
 
         elif selected_tool == "Multi-Agent Debate":
-            left_placeholder = "🎭 DEBATE TRANSCRIPT\n" + "=" * 42 + "\n\nThis panel will show the debate between:\n• Defender: Argues for strengths\n• Challenger: Identifies weaknesses\n• Arbiter: Synthesizes improvements\n\nClick 'Start Debate' to begin!"
+            left_placeholder = "🎭 DEBATE TRANSCRIPT\n" + "=" * 42 + \
+                "\n\nThis panel will show the debate between:\n• Defender: Argues for strengths\n• Challenger: Identifies weaknesses\n• Arbiter: Synthesizes improvements\n\nClick 'Start Debate' to begin!"
 
             # If article exists, show it with the "ORIGINAL ARTICLE" header
             if current_article_clean:
-                center_placeholder = "📄 ORIGINAL ARTICLE\n" + "=" * 42 + "\n\n" + current_article_clean
+                center_placeholder = "📄 ORIGINAL ARTICLE\n" + \
+                    "=" * 42 + "\n\n" + current_article_clean
             else:
                 center_placeholder = "📄 ORIGINAL ARTICLE\n" + "=" * 42 + \
                     "\n\nYour article will appear here.\n\nAfter the debate, this will show the revised version."
 
-            right_placeholder = "📝 EDIT LOG\n" + "=" * 42 + "\n\nThis panel will show what changed:\n• Substitutions\n• Additions\n• Deletions\n\nEdit log appears after debate completes."
+            right_placeholder = "📝 EDIT LOG\n" + "=" * 42 + \
+                "\n\nThis panel will show what changed:\n• Substitutions\n• Additions\n• Deletions\n\nEdit log appears after debate completes."
 
         elif selected_tool == "User Feedback":
             # Left panel becomes interactive for user input - use placeholder instead of value
@@ -2332,7 +2416,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
             # If article exists, show it in center
             if current_article_clean:
-                center_placeholder = "📝 CURRENT ARTICLE\n" + "=" * 42 + "\n\n" + current_article_clean
+                center_placeholder = "📝 CURRENT ARTICLE\n" + \
+                    "=" * 42 + "\n\n" + current_article_clean
             else:
                 center_placeholder = "📝 CURRENT ARTICLE\n" + "=" * 42 + \
                     "\n\nNo article available. Generate an article before providing feedback."
@@ -2345,7 +2430,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
             center_placeholder = "📝 ARTICLE PREVIEW\n" + "=" * 42 + "\n\nThis panel will display generated articles as they are created:\n\n- Each article with its target quality level\n- Controlled epistemic characteristics\n- Varied certainty language patterns\n- Different sourcing qualities\n\nGenerated articles will appear here during the process."
 
-            right_placeholder = "📋 METADATA & LABELS\n" + "=" * 42 + "\n\nThis panel displays structured metadata for each generated example:\n\n- Epistemic quality scores (0-10)\n- Identified flaws and issues\n- Target quality tier\n- Dataset summary statistics\n- Export file information\n\nLabeled data suitable for training classifiers will appear here."
+            right_placeholder = "📋 METADATA & LABELS\n" + "=" * 42 + \
+                "\n\nThis panel displays structured metadata for each generated example:\n\n- Epistemic quality scores (0-10)\n- Identified flaws and issues\n- Target quality tier\n- Dataset summary statistics\n- Export file information\n\nLabeled data suitable for training classifiers will appear here."
 
         else:
             # Default placeholders for other tools
@@ -2364,7 +2450,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         show_normal_left = not show_synthetic_panel
 
         # Disable download button when switching away from Synthetic Data
-        download_btn_enabled = False  # Always disabled when switching tools (will be enabled after generation completes)
+        # Always disabled when switching tools (will be enabled after generation completes)
+        download_btn_enabled = False
 
         # For User Feedback, clear value and use placeholder; for others, use value
         if selected_tool == "User Feedback":
@@ -2372,9 +2459,11 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 gr.update(value=button_text, interactive=not button_disabled),
                 gr.update(interactive=not topic_disabled),
                 gr.update(value=center_placeholder),
-                gr.update(value="", placeholder=left_panel_placeholder, interactive=left_interactive, visible=show_normal_left),
+                gr.update(value="", placeholder=left_panel_placeholder,
+                          interactive=left_interactive, visible=show_normal_left),
                 gr.update(value=right_placeholder),
-                gr.update(visible=show_synthetic_panel),  # synthetic_left_panel
+                # synthetic_left_panel
+                gr.update(visible=show_synthetic_panel),
                 gr.update(interactive=download_btn_enabled)  # download_btn
             )
         else:
@@ -2382,9 +2471,11 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 gr.update(value=button_text, interactive=not button_disabled),
                 gr.update(interactive=not topic_disabled),
                 gr.update(value=center_placeholder),
-                gr.update(value=left_placeholder, interactive=left_interactive, visible=show_normal_left),
+                gr.update(value=left_placeholder,
+                          interactive=left_interactive, visible=show_normal_left),
                 gr.update(value=right_placeholder),
-                gr.update(visible=show_synthetic_panel),  # synthetic_left_panel
+                # synthetic_left_panel
+                gr.update(visible=show_synthetic_panel),
                 gr.update(interactive=download_btn_enabled)  # download_btn
             )
 
@@ -2415,8 +2506,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
     action_button.click(
         fn=execute_action,
-        inputs=[epistemic_dropdown, topic_input, left_panel, num_examples_number, quality_dropdown, flaw_dropdown, length_dropdown],
-        outputs=[article_display, left_panel, synthetic_log, right_panel, download_file_state, download_btn],
+        inputs=[epistemic_dropdown, topic_input, left_panel,
+                num_examples_number, quality_dropdown, flaw_dropdown, length_dropdown],
+        outputs=[article_display, left_panel, synthetic_log,
+                 right_panel, download_file_state, download_btn],
         show_progress="hidden"
     ).then(
         fn=update_version_history,
