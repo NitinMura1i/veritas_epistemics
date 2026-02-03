@@ -782,81 +782,47 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
 def generate_edit_log(original: str, revised: str) -> str:
     """Generate a structured edit log comparing original and revised text.
 
-    Shows each change with strikethrough on changed words in original,
-    down arrow, then the revised version.
+    Shows each change with (Original) and (Revised) labels.
     """
     import difflib
 
-    # Split into sentences for comparison
     def split_sentences(text):
         import re
         sentences = re.split(r'(?<=[.!?])\s+', text.strip())
         return [s.strip() for s in sentences if s.strip()]
 
-    def get_word_diff(orig_sent: str, rev_sent: str) -> tuple:
-        """Compare two sentences word-by-word and return formatted versions.
-
-        Returns (original_with_strikethrough, revised_sentence)
-        """
-        orig_words = orig_sent.split()
-        rev_words = rev_sent.split()
-
-        matcher = difflib.SequenceMatcher(None, orig_words, rev_words)
-
-        # Build original with strikethrough on changed/deleted words
-        orig_formatted = []
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == 'equal':
-                orig_formatted.extend(orig_words[i1:i2])
-            elif tag == 'replace' or tag == 'delete':
-                # Strikethrough the changed/deleted words
-                for word in orig_words[i1:i2]:
-                    orig_formatted.append(f"~~{word}~~")
-
-        return ' '.join(orig_formatted), rev_sent
-
     original_sentences = split_sentences(original)
     revised_sentences = split_sentences(revised)
-
-    # Use SequenceMatcher to find which sentences changed
     matcher = difflib.SequenceMatcher(None, original_sentences, revised_sentences)
 
     changes = []
-
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'replace':
-            # Sentences were modified - do word-level diff
             for orig, rev in zip(original_sentences[i1:i2], revised_sentences[j1:j2]):
-                # Only show if there's actually a difference
                 if orig != rev:
-                    orig_formatted, rev_formatted = get_word_diff(orig, rev)
-                    changes.append((orig_formatted, rev_formatted))
+                    changes.append((orig, rev))
         elif tag == 'delete':
-            # Sentences were removed entirely
             for sent in original_sentences[i1:i2]:
-                changes.append((f"~~{sent}~~", "_[Removed]_"))
+                changes.append((sent, "[Removed]"))
         elif tag == 'insert':
-            # New sentences were added
             for sent in revised_sentences[j1:j2]:
-                changes.append(("_[New]_", sent))
+                changes.append(("[New]", sent))
 
-    # Build the edit log display
     edit_log = "📝 EDIT LOG\n"
     edit_log += "=" * 44 + "\n\n"
 
     if changes:
-        for i, (orig, rev) in enumerate(changes[:8]):  # Limit to 8 changes
+        for orig, rev in changes:
+            edit_log += "                 (Original)\n"
             edit_log += f"{orig}\n\n"
-            edit_log += "↓\n\n"
+            edit_log += "                    ↓\n\n"
+            edit_log += "                 (Revised)\n"
             edit_log += f"{rev}\n\n"
             edit_log += "-" * 44 + "\n\n"
 
-        if len(changes) > 8:
-            edit_log += f"_...and {len(changes) - 8} more changes_\n\n"
-
-        edit_log += f"**Total: {len(changes)} changes made**\n"
+        edit_log += f"Total: {len(changes)} changes made\n"
     else:
-        edit_log += "_No significant changes detected._\n"
+        edit_log += "No significant changes detected.\n"
 
     return edit_log
 
