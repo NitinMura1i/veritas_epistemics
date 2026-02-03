@@ -828,106 +828,116 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
 def generate_edit_log(original: str, revised: str) -> str:
     """Generate a structured edit log comparing original and revised text.
 
-    Uses similarity-based matching to pair related sentences.
-    Truncates output for readability.
+    Uses section-aware sentence comparison to show what changed.
     """
     import re
 
+    def truncate(text, max_len=140):
+        """Truncate text to max_len with ellipsis."""
+        text = text.replace('\n', ' ').strip()
+        if len(text) <= max_len:
+            return text
+        return text[:max_len-3] + "..."
+
+    def count_sources(text):
+        """Count the number of sources in the text."""
+        source_patterns = re.findall(r'\[[\^]?\d+\]:', text)
+        if source_patterns:
+            return len(source_patterns)
+        if "## Sources" in text:
+            sources_section = text.split("## Sources")[-1]
+            lines = [l.strip() for l in sources_section.strip().split('\n') if l.strip() and l.strip() != '## Sources']
+            return len(lines)
+        return 0
+
+    def split_into_sections(text):
+        """Split text into sections by ## headers."""
+        sections = {}
+        current_header = "intro"
+        current_content = []
+
+        for line in text.split('\n'):
+            if line.startswith('## '):
+                if current_content:
+                    sections[current_header] = '\n'.join(current_content)
+                current_header = line.strip()
+                current_content = []
+            else:
+                current_content.append(line)
+
+        if current_content:
+            sections[current_header] = '\n'.join(current_content)
+
+        return sections
+
     def split_sentences(text):
+        """Split text into sentences."""
         sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-        return [s.strip() for s in sentences if s.strip()]
+        return [s.strip() for s in sentences if s.strip() and len(s.strip()) > 10]
 
-    def get_words(sentence):
-        return set(re.findall(r'\w+', sentence.lower()))
+    # Count sources for summary
+    original_source_count = count_sources(original)
+    revised_source_count = count_sources(revised)
 
-    def similarity(sent1, sent2):
-        words1 = get_words(sent1)
-        words2 = get_words(sent2)
-        if not words1 or not words2:
-            return 0
-        intersection = words1 & words2
-        return len(intersection) / min(len(words1), len(words2))
+    # Split into sections
+    orig_sections = split_into_sections(original)
+    rev_sections = split_into_sections(revised)
 
-    def smart_truncate(orig, rev, max_len=100):
-        """Truncate around the area where the difference occurs."""
-        # Find first differing character
-        diff_pos = 0
-        min_len = min(len(orig), len(rev))
-        for i in range(min_len):
-            if orig[i] != rev[i]:
-                diff_pos = i
-                break
-        else:
-            # Strings are identical up to min_len, diff is at the end
-            diff_pos = min_len
+    # Compare sentences within each section (preserve order from original)
+    changes = []
+    all_headers = list(orig_sections.keys())
+    for h in rev_sections.keys():
+        if h not in all_headers:
+            all_headers.append(h)
 
-        # Start 30 chars before the difference (for context)
-        start = max(0, diff_pos - 30)
+    for header in all_headers:
+        # Skip sources section
+        if 'Sources' in header or 'sources' in header:
+            continue
 
-        # Calculate how much we can show
-        prefix = "..." if start > 0 else ""
-        available = max_len - len(prefix) - 3  # Reserve 3 for trailing "..."
+        orig_text = orig_sections.get(header, "")
+        rev_text = rev_sections.get(header, "")
 
-        # Truncate both strings from the same position
-        orig_slice = orig[start:start + available]
-        rev_slice = rev[start:start + available]
+        orig_sentences = split_sentences(orig_text)
+        rev_sentences = split_sentences(rev_text)
 
-        # Add suffix if there's more text
-        orig_suffix = "..." if start + available < len(orig) else ""
-        rev_suffix = "..." if start + available < len(rev) else ""
+        # Compare by position within this section
+        max_len = max(len(orig_sentences), len(rev_sentences))
+        for i in range(max_len):
+            orig_sent = orig_sentences[i] if i < len(orig_sentences) else ""
+            rev_sent = rev_sentences[i] if i < len(rev_sentences) else ""
 
-        return prefix + orig_slice + orig_suffix, prefix + rev_slice + rev_suffix
-
-    original_sentences = split_sentences(original)
-    revised_sentences = split_sentences(revised)
-
-    matched_revised = set()
-    modifications = []
-    removed_count = 0
-
-    SIMILARITY_THRESHOLD = 0.35
-
-    # For each original sentence, find best match in revised
-    for orig in original_sentences:
-        best_match = None
-        best_score = 0
-        best_idx = -1
-
-        for idx, rev in enumerate(revised_sentences):
-            if idx in matched_revised:
+            # Skip if identical or both empty
+            if orig_sent == rev_sent:
                 continue
-            score = similarity(orig, rev)
-            if score > best_score:
-                best_score = score
-                best_match = rev
-                best_idx = idx
+            # Skip if one is empty
+            if not orig_sent or not rev_sent:
+                continue
 
-        if best_score >= SIMILARITY_THRESHOLD and best_match:
-            matched_revised.add(best_idx)
-            if orig != best_match:
-                modifications.append((orig, best_match))
-        else:
-            removed_count += 1
+            changes.append((orig_sent, rev_sent))
 
     # Build edit log
     edit_log = "📝 EDIT LOG\n"
     edit_log += "=" * 44 + "\n\n"
 
-    if modifications:
-        for orig, rev in modifications:
-            orig_display, rev_display = smart_truncate(orig, rev)
+    if changes:
+        for orig, rev in changes:
             edit_log += "                 (Original)\n"
-            edit_log += f"{orig_display}\n\n"
+            edit_log += f"{truncate(orig)}\n\n"
             edit_log += "                    ↓\n\n"
             edit_log += "                 (Revised)\n"
-            edit_log += f"{rev_display}\n\n"
+            edit_log += f"{truncate(rev)}\n\n"
             edit_log += "-" * 44 + "\n\n"
 
     # Summary
-    if modifications:
-        edit_log += f"Total: {len(modifications)} edits\n"
+    if changes:
+        edit_log += f"Total: {len(changes)} edits\n"
     else:
         edit_log += "No significant changes detected.\n"
+
+    # Note source changes if any
+    if revised_source_count != original_source_count:
+        edit_log += f"Sources expanded from {original_source_count} to {revised_source_count}\n"
 
     return edit_log
 
@@ -2421,7 +2431,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         elif selected_tool == "Self-Critique":
             left_placeholder = "💭 SELF-CRITIQUE ANALYSIS\n" + "=" * 42 + \
-                "\n\nThis panel will show:\n\n• Epistemic quality assessment\n• Identification of issues\n• Suggestions for improvement\n\nClick 'Critique Article' to begin!"
+                "\n\nThis panel will show:\n• Epistemic quality assessment\n• Identification of issues\n• Suggestions for improvement\n\nClick 'Critique Article' to begin!"
 
             # If article exists, show it with the "ORIGINAL ARTICLE" header
             if current_article_clean:
@@ -2432,7 +2442,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                     "\n\nYour article will appear here.\n\nAfter the critique, this will show the revised version."
 
             right_placeholder = "📝 EDIT LOG\n" + "=" * 42 + \
-                "\n\nThis panel will show what changed:\n\n• Substitutions\n• Additions\n• Deletions\n\nEdit log appears after critique completes."
+                "\n\nThis panel will show what changed:\n• Substitutions\n• Additions\n• Deletions\n\nEdit log appears after critique completes."
 
         elif selected_tool == "Multi-Agent Debate":
             left_placeholder = "🎭 DEBATE TRANSCRIPT\n" + "=" * 42 + \
