@@ -146,7 +146,7 @@ def run_self_critique():
 
     if not current_article_clean:
         error_msg = "⚠️ No article to critique. Please generate an article first."
-        return error_msg, "", ""
+        return error_msg, "", "", None
 
     # Store original for comparison later
     original_for_diff = current_article_clean
@@ -157,7 +157,7 @@ def run_self_critique():
     center_display += original_article
 
     # Left panel: critique analysis (streaming)
-    critique_analysis = "🔍 SELF-CRITIQUE ANALYSIS\n"
+    critique_analysis = "💭 SELF-CRITIQUE ANALYSIS\n"
     critique_analysis += "=" * 44 + "\n\n"
     critique_analysis += "🔎 Analyzing article for epistemic issues...\n\n"
 
@@ -168,7 +168,7 @@ def run_self_critique():
     edit_log_placeholder += "The refined article will be compared to the original, "
     edit_log_placeholder += "and this panel will show exactly what was changed."
 
-    yield critique_analysis, center_display, edit_log_placeholder
+    yield critique_analysis, center_display, edit_log_placeholder, None
 
     try:
         # Step 1: Generate critique analysis with streaming
@@ -200,17 +200,17 @@ def run_self_critique():
         for response, chunk in critique_chat.stream():
             if chunk.content:
                 full_critique += chunk.content
-                critique_analysis_display = "🔍 SELF-CRITIQUE ANALYSIS\n"
+                critique_analysis_display = "💭 SELF-CRITIQUE ANALYSIS\n"
                 critique_analysis_display += "=" * 44 + "\n\n"
                 critique_analysis_display += full_critique
-                yield critique_analysis_display, center_display, edit_log_placeholder
+                yield critique_analysis_display, center_display, edit_log_placeholder, None
 
         # Step 2: Generate refined article based on critique
-        critique_analysis_display = "🔍 SELF-CRITIQUE ANALYSIS\n"
+        critique_analysis_display = "💭 SELF-CRITIQUE ANALYSIS\n"
         critique_analysis_display += "=" * 44 + "\n\n"
         critique_analysis_display += full_critique + "\n\n"
         critique_analysis_display += "✓ Analysis complete. Generating refined article...\n"
-        yield critique_analysis_display, center_display, edit_log_placeholder
+        yield critique_analysis_display, center_display, edit_log_placeholder, None
 
         refinement_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         refinement_chat.append(system(
@@ -241,7 +241,7 @@ def run_self_critique():
             if chunk.content:
                 refined_article += chunk.content
                 streaming_center = refined_header + refined_article
-                yield critique_analysis_display, streaming_center, generating_edit_log
+                yield critique_analysis_display, streaming_center, generating_edit_log, None
 
         # Generate the edit log by comparing original and revised
         edit_log = generate_edit_log(original_for_diff, refined_article)
@@ -255,19 +255,32 @@ def run_self_critique():
         final_article += f"__Epistemically refined through self-critique__\n\n---\n\n{refined_article}"
         article_history.append(final_article)
 
+        # Save refined article to file for download
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"refined_article_{timestamp}.md"
+        filepath = os.path.abspath(filename)
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(refined_article)
+        except Exception as e:
+            print(f"Error saving refined article: {e}")
+            filepath = None
+
         # Final yield with complete versions
-        final_critique_display = "🔍 SELF-CRITIQUE ANALYSIS\n"
+        final_critique_display = "💭 SELF-CRITIQUE ANALYSIS\n"
         final_critique_display += "=" * 44 + "\n\n"
         final_critique_display += full_critique + "\n\n"
         final_critique_display += "✅ Critique complete! Refined article generated."
 
         final_center = refined_header + refined_article
-        yield final_critique_display, final_center, edit_log
+        yield final_critique_display, final_center, edit_log, filepath
 
     except Exception as e:
         error_analysis = critique_analysis + \
             f"\n\n❌ Error during critique: {str(e)}\n\nPlease try again."
-        yield error_analysis, center_display, edit_log_placeholder
+        yield error_analysis, center_display, edit_log_placeholder, None
 
 
 def run_user_feedback(user_feedback):
@@ -835,10 +848,35 @@ def generate_edit_log(original: str, revised: str) -> str:
         intersection = words1 & words2
         return len(intersection) / min(len(words1), len(words2))
 
-    def truncate(text, max_len=100):
-        if len(text) <= max_len:
-            return text
-        return text[:max_len-3] + "..."
+    def smart_truncate(orig, rev, max_len=100):
+        """Truncate around the area where the difference occurs."""
+        # Find first differing character
+        diff_pos = 0
+        min_len = min(len(orig), len(rev))
+        for i in range(min_len):
+            if orig[i] != rev[i]:
+                diff_pos = i
+                break
+        else:
+            # Strings are identical up to min_len, diff is at the end
+            diff_pos = min_len
+
+        # Start 30 chars before the difference (for context)
+        start = max(0, diff_pos - 30)
+
+        # Calculate how much we can show
+        prefix = "..." if start > 0 else ""
+        available = max_len - len(prefix) - 3  # Reserve 3 for trailing "..."
+
+        # Truncate both strings from the same position
+        orig_slice = orig[start:start + available]
+        rev_slice = rev[start:start + available]
+
+        # Add suffix if there's more text
+        orig_suffix = "..." if start + available < len(orig) else ""
+        rev_suffix = "..." if start + available < len(rev) else ""
+
+        return prefix + orig_slice + orig_suffix, prefix + rev_slice + rev_suffix
 
     original_sentences = split_sentences(original)
     revised_sentences = split_sentences(revised)
@@ -877,11 +915,12 @@ def generate_edit_log(original: str, revised: str) -> str:
 
     if modifications:
         for orig, rev in modifications:
+            orig_display, rev_display = smart_truncate(orig, rev)
             edit_log += "                 (Original)\n"
-            edit_log += f"{truncate(orig)}\n\n"
+            edit_log += f"{orig_display}\n\n"
             edit_log += "                    ↓\n\n"
             edit_log += "                 (Revised)\n"
-            edit_log += f"{truncate(rev)}\n\n"
+            edit_log += f"{rev_display}\n\n"
             edit_log += "-" * 44 + "\n\n"
 
     # Summary
@@ -2326,9 +2365,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 download_enabled = filepath is not None
                 yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
         elif selected_tool == "Self-Critique":
-            # Run self-critique - yields (left=critique, center=article, right=edit_log)
-            for left, center, right in run_self_critique():
-                yield center, left, left, right, None, gr.update(interactive=False)
+            # Run self-critique - yields (left=critique, center=article, right=edit_log, filepath)
+            for left, center, right, filepath in run_self_critique():
+                download_enabled = filepath is not None
+                yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
         elif selected_tool == "User Feedback":
             # Process user feedback
             for center, left, right in run_user_feedback(user_feedback):
@@ -2380,7 +2420,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation."
 
         elif selected_tool == "Self-Critique":
-            left_placeholder = "🔍 CRITIQUE ANALYSIS\n" + "=" * 42 + \
+            left_placeholder = "💭 SELF-CRITIQUE ANALYSIS\n" + "=" * 42 + \
                 "\n\nThis panel will show:\n\n• Epistemic quality assessment\n• Identification of issues\n• Suggestions for improvement\n\nClick 'Critique Article' to begin!"
 
             # If article exists, show it with the "ORIGINAL ARTICLE" header
