@@ -839,7 +839,7 @@ def run_multi_agent_debate():
 
     if not current_article_clean:
         error_msg = "⚠️ No article to debate. Please generate an article first."
-        return error_msg, "", ""
+        return error_msg, "", "", None
 
     # Store original for comparison later
     original_for_diff = current_article_clean
@@ -861,7 +861,7 @@ def run_multi_agent_debate():
     edit_log_placeholder += "The arbiter will synthesize the debate into a revised article, "
     edit_log_placeholder += "and this panel will show exactly what was changed."
 
-    yield debate_transcript, center_display, edit_log_placeholder
+    yield debate_transcript, center_display, edit_log_placeholder, None
 
     # Agent 1: Defender
     debate_transcript = "🎭 DEBATE TRANSCRIPT\n"
@@ -869,7 +869,7 @@ def run_multi_agent_debate():
     debate_transcript += "🟢 DEFENDER AGENT\n"
     debate_transcript += "-" * 44 + "\n"
     debate_transcript += "⏳ Analyzing article for strengths...\n\n"
-    yield debate_transcript, center_display, edit_log_placeholder
+    yield debate_transcript, center_display, edit_log_placeholder, None
 
     try:
         defender_chat = client.chat.create(model="grok-4-1-fast-reasoning")
@@ -890,16 +890,16 @@ def run_multi_agent_debate():
             if chunk.content:
                 defender_response += chunk.content
                 streaming_transcript = debate_base + defender_response
-                yield streaming_transcript, center_display, edit_log_placeholder
+                yield streaming_transcript, center_display, edit_log_placeholder, None
 
         debate_transcript = debate_base + f"{defender_response}\n\n\n"
-        yield debate_transcript, center_display, edit_log_placeholder
+        yield debate_transcript, center_display, edit_log_placeholder, None
 
         # Agent 2: Challenger
         debate_transcript += "🔴 CHALLENGER AGENT\n"
         debate_transcript += "-" * 44 + "\n"
         debate_transcript += "⏳ Analyzing article for weaknesses...\n\n"
-        yield debate_transcript, center_display, edit_log_placeholder
+        yield debate_transcript, center_display, edit_log_placeholder, None
 
         challenger_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         challenger_chat.append(system(
@@ -920,16 +920,16 @@ def run_multi_agent_debate():
             if chunk.content:
                 challenger_response += chunk.content
                 streaming_transcript = challenger_base + challenger_response
-                yield streaming_transcript, center_display, edit_log_placeholder
+                yield streaming_transcript, center_display, edit_log_placeholder, None
 
         debate_transcript = challenger_base + f"{challenger_response}\n\n\n"
-        yield debate_transcript, center_display, edit_log_placeholder
+        yield debate_transcript, center_display, edit_log_placeholder, None
 
         # Agent 3: Arbiter (produces revised article)
         debate_transcript += "⚖️ ARBITER AGENT\n"
         debate_transcript += "-" * 44 + "\n"
         debate_transcript += "⏳ Synthesizing debate and producing revised article...\n\n"
-        yield debate_transcript, center_display, edit_log_placeholder
+        yield debate_transcript, center_display, edit_log_placeholder, None
 
         arbiter_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         arbiter_chat.append(system(
@@ -967,7 +967,7 @@ Produce the final revised article."""))
             if chunk.content:
                 revised_article += chunk.content
                 streaming_center = revised_header + revised_article
-                yield debate_transcript, streaming_center, generating_edit_log
+                yield debate_transcript, streaming_center, generating_edit_log, None
 
         # Generate the edit log by comparing original and revised
         edit_log = generate_edit_log(original_for_diff, revised_article)
@@ -987,12 +987,25 @@ Produce the final revised article."""))
         final_article += revised_article
         article_history.append(final_article)
 
-        yield debate_transcript, final_center, edit_log
+        # Save revised article to file for download
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"revised_article_{timestamp}.md"
+        filepath = os.path.abspath(filename)
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(revised_article)
+        except Exception as e:
+            print(f"Error saving revised article: {e}")
+            filepath = None
+
+        yield debate_transcript, final_center, edit_log, filepath
 
     except Exception as e:
         error_transcript = debate_transcript + \
             f"\n\n❌ Error during debate: {str(e)}\n\nPlease try again."
-        yield error_transcript, center_display, edit_log_placeholder
+        yield error_transcript, center_display, edit_log_placeholder, None
 
 
 def fetch_content_from_url(url: str) -> Optional[Dict[str, str]]:
@@ -2233,9 +2246,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 download_enabled = filepath is not None
                 yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
         elif selected_tool == "Multi-Agent Debate":
-            # Run debate - yields (left=transcript, center=article, right=edit_log)
-            for left, center, right in run_multi_agent_debate():
-                yield center, left, left, right, None, gr.update(interactive=False)
+            # Run debate - yields (left=transcript, center=article, right=edit_log, filepath)
+            for left, center, right, filepath in run_multi_agent_debate():
+                download_enabled = filepath is not None
+                yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
         elif selected_tool == "Self-Critique":
             # Run self-critique
             for center, left, right in run_self_critique():
@@ -2254,32 +2268,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             # Placeholder for other tools
             error_msg = f"⚠️ {selected_tool} not yet implemented."
             yield "", error_msg, error_msg, "", None, gr.update(interactive=False)
-
-    # Trigger action on Enter key in topic input (same behavior as action button)
-    topic_input.submit(
-        fn=execute_action,
-        inputs=[epistemic_dropdown, topic_input, left_panel, num_examples_number, quality_dropdown, flaw_dropdown, length_dropdown],
-        outputs=[article_display, left_panel, synthetic_log, right_panel, download_file_state, download_btn],
-        show_progress="hidden"
-    ).then(
-        fn=update_version_history,
-        inputs=[article_display, left_panel, right_panel],
-        outputs=[version_state]
-    ).then(
-        fn=None,
-        inputs=[version_state],
-        js="""(versionHtml) => {
-            setTimeout(() => {
-                const textareas = document.querySelectorAll('textarea');
-                textareas.forEach(t => { t.scrollTop = 0; });
-            }, 100);
-
-            const versionList = document.getElementById('version-list');
-            if (versionList && versionHtml) {
-                versionList.innerHTML = versionHtml;
-            }
-        }"""
-    )
 
     # Update action button text and input state based on dropdown selection
     def update_ui_state(selected_tool, topic):
