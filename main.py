@@ -258,7 +258,7 @@ def run_self_critique():
         # Save refined article to file for download
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"refined_article_{timestamp}.md"
+        filename = f"critique_{timestamp}.md"
         filepath = os.path.abspath(filename)
 
         try:
@@ -293,7 +293,7 @@ def run_user_feedback(user_feedback):
             "No article available. Generate an article before providing feedback."
         rejection_display = "❌ FEEDBACK REJECTED\n" + "=" * 44 + "\n\n" + \
             "No article available to provide feedback on.\n\nGenerate an article first using Article Generation."
-        return center_display, error_msg, rejection_display
+        return center_display, error_msg, rejection_display, None
 
     # Store original article for comparison
     original_article_text = current_article_clean
@@ -310,7 +310,7 @@ def run_user_feedback(user_feedback):
     right_placeholder = "📋 CHANGELOG\n" + "=" * 44 + \
         "\n\n⏳ Processing...\n\nChangelog will appear here."
 
-    yield center_display, processing_msg, right_placeholder
+    yield center_display, processing_msg, right_placeholder, None
 
     try:
         # Step 1: Validate and analyze user feedback
@@ -362,7 +362,7 @@ def run_user_feedback(user_feedback):
             rejection_display += "Edit your feedback in the left panel and try again."
 
             # Keep user's original feedback in left panel (still editable)
-            yield center_display, user_feedback, rejection_display
+            yield center_display, user_feedback, rejection_display, None
             return
 
         # Step 2: Feedback is valid - evaluate suggestions against sources
@@ -423,16 +423,16 @@ def run_user_feedback(user_feedback):
             if chunk.content:
                 revised_article += chunk.content
                 streaming_center = revision_header + revised_article
-                yield streaming_center, processing_msg, right_placeholder
+                yield streaming_center, processing_msg, right_placeholder, None
 
         # Step 4: Generate changelog showing what changed
         changelog_chat = client.chat.create(model="grok-4-1-fast-reasoning")
         changelog_chat.append(system(
             "You are generating a changelog that shows what changed in the article based on user feedback.\n\n"
             "Create a clear, structured changelog with these sections:\n"
-            "✓ ACCEPTED - Suggestions that were fully incorporated\n"
+            "✅ ACCEPTED - Suggestions that were fully incorporated\n"
             "⚠️ PARTIALLY ACCEPTED - Suggestions that were modified before incorporating\n"
-            "✗ REJECTED - Suggestions that were not incorporated\n\n"
+            "❌ REJECTED - Suggestions that were not incorporated\n\n"
             "For each item, include:\n"
             "- The user's original feedback/suggestion\n"
             "- What actually changed in the article (be specific)\n"
@@ -456,7 +456,7 @@ def run_user_feedback(user_feedback):
                 changelog += chunk.content
                 streaming_changelog = changelog_header + changelog
                 final_center = revision_header + revised_article
-                yield final_center, processing_msg, streaming_changelog
+                yield final_center, processing_msg, streaming_changelog, None
 
         # Update current article
         current_article_clean = revised_article
@@ -467,17 +467,29 @@ def run_user_feedback(user_feedback):
         final_article += f"__Revised based on user feedback__\n\n---\n\n{revised_article}"
         article_history.append(final_article)
 
+        # Save revised article to file for download
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"feedback_{timestamp}.md"
+        filepath = os.path.abspath(filename)
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(revised_article)
+        except Exception as e:
+            print(f"Error saving feedback revised article: {e}")
+            filepath = None
+
         # Final display - use placeholder for "ready for next round" message
         final_center = revision_header + revised_article
         final_changelog = changelog_header + changelog
 
         # Return with empty value and placeholder for next round
-        # Need to return a dict with both value and placeholder
-        yield final_center, gr.update(value="", placeholder="✅ Feedback processed! Article updated.\n\nEnter new feedback to continue refining..."), final_changelog
+        yield final_center, gr.update(value="", placeholder="✅ Feedback processed! Article updated.\n\nEnter new feedback to continue refining..."), final_changelog, filepath
 
     except Exception as e:
         error_display = f"❌ Error processing feedback: {str(e)}\n\nPlease try again."
-        yield center_display, user_feedback, error_display
+        yield center_display, user_feedback, error_display, None
 
 
 def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
@@ -846,7 +858,8 @@ def generate_edit_log(original: str, revised: str) -> str:
             return len(source_patterns)
         if "## Sources" in text:
             sources_section = text.split("## Sources")[-1]
-            lines = [l.strip() for l in sources_section.strip().split('\n') if l.strip() and l.strip() != '## Sources']
+            lines = [l.strip() for l in sources_section.strip().split(
+                '\n') if l.strip() and l.strip() != '## Sources']
             return len(lines)
         return 0
 
@@ -1107,7 +1120,7 @@ Produce the final revised article."""))
         # Save revised article to file for download
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"revised_article_{timestamp}.md"
+        filename = f"debate_{timestamp}.md"
         filepath = os.path.abspath(filename)
 
         try:
@@ -2380,9 +2393,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 download_enabled = filepath is not None
                 yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
         elif selected_tool == "User Feedback":
-            # Process user feedback
-            for center, left, right in run_user_feedback(user_feedback):
-                yield center, left, left, right, None, gr.update(interactive=False)
+            # Process user feedback - yields (center, left, right, filepath)
+            for center, left, right, filepath in run_user_feedback(user_feedback):
+                download_enabled = filepath is not None
+                yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
         elif selected_tool == "Synthetic Data":
             # Generate synthetic training data - yields to (center, synthetic_log, right, filename)
             for center, synth_log, right, filename in run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
@@ -2470,9 +2484,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                     "=" * 42 + "\n\n" + current_article_clean
             else:
                 center_placeholder = "📝 CURRENT ARTICLE\n" + "=" * 42 + \
-                    "\n\nNo article available. Generate an article before providing feedback."
+                    "\n\nYour article will appear here.\n\nAfter the feedback, this will show the revised version."
 
-            right_placeholder = "📋 CHANGELOG\n" + "=" * 42 + "\n\nThis panel will display the changelog after processing your feedback:\n\n✓ ACCEPTED changes\n   - What was incorporated and why\n\n⚠️ PARTIALLY ACCEPTED changes\n   - What was modified and reasoning\n\n✗ REJECTED changes\n   - Why suggestions weren't incorporated\n\nThe revised article will appear in the center panel.\n\nEnter your feedback in the left panel and click 'Collect Feedback'."
+            right_placeholder = "📋 CHANGELOG\n" + "=" * 42 + "\n\nThis panel will display the changelog after processing your feedback:\n\n✅ ACCEPTED changes\n   - What was incorporated and why\n\n⚠️ PARTIALLY ACCEPTED changes\n   - What was modified and reasoning\n\n❌ REJECTED changes\n   - Why suggestions weren't incorporated\n\nThe revised article will appear in the center panel.\n\nEnter your feedback in the left panel and click 'Collect Feedback'."
 
         elif selected_tool == "Synthetic Data":
             # Synthetic Data Generation placeholders
