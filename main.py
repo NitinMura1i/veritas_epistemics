@@ -36,19 +36,26 @@ def toggle_source_view():
 
 def toggle_version_panel():
     """Toggle version history panel visibility."""
+    import json
     global version_panel_visible
     version_panel_visible = not version_panel_visible
-    return build_version_history_html()
+    return json.dumps(build_version_history_html())
 
 
 def build_version_history_html():
-    """Build HTML for version history list."""
+    """Build HTML for version history list with article content as data attributes."""
     global article_history
 
     if not article_history:
-        return "<div style='color: #9ca3af; text-align: center; padding: 20px;'>No versions yet. Generate an article to begin.</div>"
+        return {
+            "list": "<div style='color: #9ca3af; text-align: center; padding: 20px; font-size: 0.8rem;'>No versions yet.</div>",
+            "articles": [],
+            "latest_content": "No versions yet. Generate an article to begin."
+        }
 
-    html = ""
+    list_html = ""
+    articles_data = []
+
     for idx, article in enumerate(reversed(article_history)):
         version_num = len(article_history) - idx
         is_latest = (idx == 0)
@@ -58,24 +65,46 @@ def build_version_history_html():
             version_type = "Post-Debate"
         elif "Post-Critique" in article:
             version_type = "Post-Critique"
+        elif "User Feedback" in article:
+            version_type = "User Feedback"
         else:
             version_type = "Original"
 
         latest_class = " latest" if is_latest else ""
+        selected_class = " selected" if is_latest else ""
 
-        html += f"""
-        <div class='version-item{latest_class}' onclick='selectVersion({version_num - 1})'>
+        # Extract just the article content (remove headers)
+        article_content = article
+        if "---\n\n" in article:
+            article_content = article.split("---\n\n", 1)[-1]
+
+        articles_data.append({
+            "version": version_num,
+            "type": version_type,
+            "content": article_content
+        })
+
+        list_html += f"""
+        <div class='version-item{latest_class}{selected_class}' data-version='{version_num}' onclick='selectVersion({version_num})'>
             <div class='version-label'>v{version_num} {"(Latest)" if is_latest else ""}</div>
             <div class='version-type'>{version_type}</div>
         </div>
         """
 
-    return html
+    # Get latest article content for initial preview
+    latest_content = articles_data[0]["content"] if articles_data else ""
+
+    return {
+        "list": list_html,
+        "articles": articles_data,
+        "latest_content": latest_content
+    }
 
 
 def update_version_history(*args):
     """Wrapper to update version history, ignoring any input args from previous step."""
-    return build_version_history_html()
+    import json
+    return json.dumps(build_version_history_html())
 
 
 def fetch_wikipedia(topic: str) -> Optional[Dict[str, str]]:
@@ -1984,17 +2013,19 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         #version-panel {
             position: fixed;
             top: 0;
-            right: -450px;
-            width: 400px;
+            right: -100%;
+            width: 90%;
             height: 100vh;
             background-color: #0f0f0f;
-            border-left: 3px solid #6366f1;
+            border-left: 3px solid #ffffff;
             z-index: 9999;
-            overflow-y: auto;
+            overflow: hidden;
             padding: 20px;
             box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
             transition: right 0.3s ease;
             pointer-events: none;
+            display: flex;
+            flex-direction: column;
         }
 
         #version-panel.visible {
@@ -2002,9 +2033,49 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             pointer-events: auto;
         }
 
+        #version-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #6366f1;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #333;
+            flex-shrink: 0;
+        }
+
         #close-version-panel:hover {
             color: #f87171;
             transform: scale(1.2);
+        }
+
+        #version-panel-content {
+            display: flex;
+            flex: 1;
+            gap: 20px;
+            overflow: hidden;
+        }
+
+        #version-preview {
+            flex: 1;
+            background-color: #1a1a1a;
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: #e5e7eb;
+            line-height: 1.6;
+        }
+
+        #version-list-container {
+            width: 250px;
+            flex-shrink: 0;
+            overflow-y: auto;
         }
 
         .version-item {
@@ -2025,6 +2096,11 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         .version-item.latest {
             border-color: #10b981;
             background-color: #1a2420;
+        }
+
+        .version-item.selected {
+            border-color: #6366f1;
+            background-color: #252538;
         }
 
         .version-label {
@@ -2150,12 +2226,17 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 const panel = document.createElement('div');
                 panel.id = 'version-panel';
                 panel.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; font-weight: bold; color: #6366f1; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #333;">
-                        <span>📜 VERSION HISTORY</span>
-                        <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #6366f1; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
+                    <div id="version-panel-header" style="display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; font-weight: normal; color: #ffffff; font-family: monospace; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #333; flex-shrink: 0;">
+                        <span>⏳ VERSION HISTORY</span>
+                        <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
                     </div>
-                    <div id="version-list">
-                        <div style='color: #9ca3af; text-align: center; padding: 20px;'>No versions yet. Generate an article to begin.</div>
+                    <div id="version-panel-content" style="display: flex; flex-direction: row; flex: 1; gap: 20px; overflow: hidden; min-height: 0; height: calc(100% - 70px);">
+                        <div id="version-preview" style="flex: 1; min-width: 0; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6;">Select a version to preview</div>
+                        <div id="version-list-container" style="width: 170px; min-width: 170px; flex-shrink: 0; overflow-y: auto;">
+                            <div id="version-list">
+                                <div style='color: #9ca3af; text-align: center; padding: 20px; font-size: 0.8rem;'>No versions yet.</div>
+                            </div>
+                        </div>
                     </div>
                 `;
                 document.body.appendChild(panel);
@@ -2168,23 +2249,31 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         setTimeout(injectVersionPanel, 100);
         setTimeout(injectVersionPanel, 500);
 
-        // Helper to update version list from Gradio state
-        function updateVersionList(html) {
-            const versionList = document.getElementById('version-list');
-            if (versionList && html) {
-                versionList.innerHTML = html;
-            }
-        }
+        // Initialize global storage for version articles
+        window.versionArticles = [];
 
         // Function called when clicking a version item
-        function selectVersion(index) {
-            // TODO: Implement loading specific version into center panel
-            // For now, just close the panel
-            const panel = document.getElementById('version-panel');
-            if (panel) {
-                panel.classList.remove('visible');
+        window.selectVersion = function(versionNum) {
+            console.log('selectVersion called with:', versionNum);
+            console.log('Available articles:', window.versionArticles.length);
+            const articles = window.versionArticles || [];
+            const article = articles.find(a => a.version === versionNum);
+            console.log('Found article:', article ? 'yes' : 'no');
+            if (article) {
+                const preview = document.getElementById('version-preview');
+                if (preview) {
+                    preview.textContent = article.content;
+                    console.log('Preview updated');
+                }
+                // Update selected state
+                document.querySelectorAll('.version-item').forEach(item => {
+                    item.classList.remove('selected');
+                    if (item.dataset.version == versionNum) {
+                        item.classList.add('selected');
+                    }
+                });
             }
-        }
+        };
     </script>
     <style>
         /* Toolbar nuke (your existing rule kept) */
@@ -2582,15 +2671,34 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     ).then(
         fn=None,
         inputs=[version_state],
-        js="""(versionHtml) => {
+        js="""(versionData) => {
             setTimeout(() => {
                 const textareas = document.querySelectorAll('textarea');
                 textareas.forEach(t => { t.scrollTop = 0; });
             }, 100);
 
+            // Parse the version data
+            let data;
+            try {
+                data = typeof versionData === 'string' ? JSON.parse(versionData) : versionData;
+            } catch(e) {
+                data = { list: versionData, articles: [], latest_content: '' };
+            }
+
+            // Update global articles data
+            window.versionArticles = data.articles || [];
+
+            // Update the version list if panel exists
             const versionList = document.getElementById('version-list');
-            if (versionList && versionHtml) {
-                versionList.innerHTML = versionHtml;
+            if (versionList && data.list) {
+                versionList.innerHTML = data.list;
+            }
+
+            // Update preview with latest content if panel is visible
+            const panel = document.getElementById('version-panel');
+            const preview = document.getElementById('version-preview');
+            if (panel && panel.classList.contains('visible') && preview && data.latest_content) {
+                preview.textContent = data.latest_content;
             }
         }"""
     )
@@ -2627,18 +2735,37 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     ).then(
         fn=None,
         inputs=[version_state],
-        js="""(versionListHtml) => {
+        js="""(versionData) => {
+            // Parse the version data
+            let data;
+            try {
+                data = typeof versionData === 'string' ? JSON.parse(versionData) : versionData;
+                console.log('Version data parsed:', data);
+                console.log('Articles count:', data.articles ? data.articles.length : 0);
+                console.log('Latest content length:', data.latest_content ? data.latest_content.length : 0);
+            } catch(e) {
+                console.error('Failed to parse version data:', e);
+                data = { list: versionData, articles: [], latest_content: '' };
+            }
+
+            // Store articles globally for selectVersion function
+            window.versionArticles = data.articles || [];
+            console.log('Stored versionArticles:', window.versionArticles.length);
+
             // Ensure panel exists
             if (!document.getElementById('version-panel')) {
                 const panel = document.createElement('div');
                 panel.id = 'version-panel';
                 panel.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; font-weight: bold; color: #6366f1; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #333;">
-                        <span>📜 VERSION HISTORY</span>
-                        <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #6366f1; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
+                    <div id="version-panel-header" style="display: flex; justify-content: space-between; align-items: center; font-size: 1.2rem; font-weight: normal; color: #ffffff; font-family: monospace; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #333; flex-shrink: 0;">
+                        <span>⏳ VERSION HISTORY</span>
+                        <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
                     </div>
-                    <div id="version-list">
-                        <div style='color: #9ca3af; text-align: center; padding: 20px;'>No versions yet. Generate an article to begin.</div>
+                    <div id="version-panel-content" style="display: flex; flex-direction: row; flex: 1; gap: 20px; overflow: hidden; min-height: 0; height: calc(100% - 70px);">
+                        <div id="version-preview" style="flex: 1; min-width: 0; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6;">Select a version to preview</div>
+                        <div id="version-list-container" style="width: 170px; min-width: 170px; flex-shrink: 0; overflow-y: auto;">
+                            <div id="version-list"></div>
+                        </div>
                     </div>
                 `;
                 document.body.appendChild(panel);
@@ -2646,8 +2773,14 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
             // Update the version list content
             const versionList = document.getElementById('version-list');
-            if (versionList && versionListHtml) {
-                versionList.innerHTML = versionListHtml;
+            if (versionList && data.list) {
+                versionList.innerHTML = data.list;
+            }
+
+            // Update preview with latest content
+            const preview = document.getElementById('version-preview');
+            if (preview && data.latest_content) {
+                preview.textContent = data.latest_content;
             }
 
             // Toggle panel visibility
@@ -2655,6 +2788,25 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             if (panel) {
                 panel.classList.toggle('visible');
             }
+
+            // Define selectVersion function globally
+            window.selectVersion = function(versionNum) {
+                const articles = window.versionArticles || [];
+                const article = articles.find(a => a.version === versionNum);
+                if (article) {
+                    const preview = document.getElementById('version-preview');
+                    if (preview) {
+                        preview.textContent = article.content;
+                    }
+                    // Update selected state
+                    document.querySelectorAll('.version-item').forEach(item => {
+                        item.classList.remove('selected');
+                        if (item.dataset.version == versionNum) {
+                            item.classList.add('selected');
+                        }
+                    });
+                }
+            };
         }"""
     )
 
