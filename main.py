@@ -48,7 +48,7 @@ def build_version_history_html():
 
     if not article_history:
         return {
-            "list": "<div style='color: #9ca3af; text-align: center; padding: 20px; font-size: 0.8rem;'>No versions yet.</div>",
+            "list": "<div style='color: #9ca3af; text-align: center; padding: 20px; font-size: 0.65rem;'>No versions yet.</div>",
             "articles": [],
             "latest_content": "No versions yet. Generate an article to begin."
         }
@@ -77,6 +77,13 @@ def build_version_history_html():
         article_content = article
         if "---\n\n" in article:
             article_content = article.split("---\n\n", 1)[-1]
+        elif "=" * 20 in article:
+            # Handle initial article format (📝 YOUR ARTICLE\n====...\n\n)
+            lines = article.split("\n")
+            for i, line in enumerate(lines):
+                if line.startswith("=" * 20):
+                    article_content = "\n".join(lines[i+1:]).lstrip()
+                    break
 
         articles_data.append({
             "version": version_num,
@@ -2021,6 +2028,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             z-index: 9999;
             overflow: hidden;
             padding: 20px;
+            box-sizing: border-box;
             box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
             transition: right 0.3s ease;
             pointer-events: none;
@@ -2073,7 +2081,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         }
 
         #version-list-container {
-            width: 250px;
+            width: 120px;
             flex-shrink: 0;
             overflow-y: auto;
         }
@@ -2082,36 +2090,39 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             background-color: #1a1a1a;
             border: 2px solid #333;
             border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 10px;
+            padding: 4px 8px;
+            margin-bottom: 4px;
             cursor: pointer;
             transition: all 0.2s ease;
+            font-family: monospace;
         }
 
         .version-item:hover {
-            border-color: #6366f1;
+            border-color: #ffffff;
             background-color: #252525;
         }
 
         .version-item.latest {
-            border-color: #10b981;
-            background-color: #1a2420;
+            /* No special border - only .selected gets white border */
         }
 
         .version-item.selected {
-            border-color: #6366f1;
-            background-color: #252538;
+            border-color: #ffffff;
+            background-color: #252525;
         }
 
         .version-label {
-            font-weight: bold;
+            font-weight: normal;
+            font-size: 0.8rem;
             color: #e5e7eb;
-            margin-bottom: 4px;
+            margin-bottom: 1px;
+            line-height: 1.2;
         }
 
         .version-type {
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             color: #9ca3af;
+            line-height: 1.2;
         }
 
         .version-history-header {
@@ -2127,31 +2138,39 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             background-color: #1a1a1a !important;
             border: 2px solid #333 !important;
             border-radius: 8px !important;
-            padding: 12px !important;
-            margin-bottom: 10px !important;
+            padding: 4px 8px !important;
+            margin-bottom: 4px !important;
             cursor: pointer !important;
             transition: all 0.2s ease !important;
+            font-family: monospace !important;
         }
 
         .version-item:hover {
-            border-color: #6366f1 !important;
+            border-color: #ffffff !important;
             background-color: #252525 !important;
         }
 
         .version-item.latest {
-            border-color: #10b981 !important;
-            background-color: #1a2420 !important;
+            /* No special border - only .selected gets white border */
+        }
+
+        .version-item.selected {
+            border-color: #ffffff !important;
+            background-color: #252525 !important;
         }
 
         .version-label {
-            font-weight: bold !important;
+            font-weight: normal !important;
+            font-size: 0.8rem !important;
             color: #e5e7eb !important;
-            margin-bottom: 4px !important;
+            margin-bottom: 1px !important;
+            line-height: 1.2 !important;
         }
 
         .version-type {
-            font-size: 0.85rem !important;
+            font-size: 0.8rem !important;
             color: #9ca3af !important;
+            line-height: 1.2 !important;
         }
 
         #version-history-btn {
@@ -2230,11 +2249,11 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                         <span>⏳ VERSION HISTORY</span>
                         <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
                     </div>
-                    <div id="version-panel-content" style="display: flex; flex-direction: row; flex: 1; gap: 20px; overflow: hidden; min-height: 0; height: calc(100% - 70px);">
-                        <div id="version-preview" style="flex: 1; min-width: 0; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6;">Select a version to preview</div>
-                        <div id="version-list-container" style="width: 170px; min-width: 170px; flex-shrink: 0; overflow-y: auto;">
+                    <div id="version-panel-content" style="display: flex; flex-direction: row; flex: 1; gap: 20px; overflow: hidden; min-height: 0; margin-bottom: 15px;">
+                        <div id="version-preview" style="flex: 1; min-width: 0; min-height: 0; height: 100%; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6; box-sizing: border-box;">Select a version to preview</div>
+                        <div id="version-list-container" style="width: 120px; min-width: 120px; flex-shrink: 0; overflow-y: auto;">
                             <div id="version-list">
-                                <div style='color: #9ca3af; text-align: center; padding: 20px; font-size: 0.8rem;'>No versions yet.</div>
+                                <div style='color: #9ca3af; text-align: center; padding: 20px; font-size: 0.7rem;'>No versions yet.</div>
                             </div>
                         </div>
                     </div>
@@ -2761,9 +2780,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                         <span>⏳ VERSION HISTORY</span>
                         <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
                     </div>
-                    <div id="version-panel-content" style="display: flex; flex-direction: row; flex: 1; gap: 20px; overflow: hidden; min-height: 0; height: calc(100% - 70px);">
-                        <div id="version-preview" style="flex: 1; min-width: 0; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6;">Select a version to preview</div>
-                        <div id="version-list-container" style="width: 170px; min-width: 170px; flex-shrink: 0; overflow-y: auto;">
+                    <div id="version-panel-content" style="display: flex; flex-direction: row; flex: 1; gap: 20px; overflow: hidden; min-height: 0; margin-bottom: 15px;">
+                        <div id="version-preview" style="flex: 1; min-width: 0; min-height: 0; height: 100%; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6; box-sizing: border-box;">Select a version to preview</div>
+                        <div id="version-list-container" style="width: 120px; min-width: 120px; flex-shrink: 0; overflow-y: auto;">
                             <div id="version-list"></div>
                         </div>
                     </div>
