@@ -2173,6 +2173,12 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             line-height: 1.2 !important;
         }
 
+        #restore-version-btn:hover:not(:disabled) {
+            border-color: #ffffff !important;
+            color: #ffffff !important;
+            background-color: #252525 !important;
+        }
+
         #version-history-btn {
             background-color: #0f0f0f !important;
             border: 1.5px solid #e5e7eb !important;
@@ -2250,7 +2256,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                         <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
                     </div>
                     <div id="version-panel-content" style="display: flex; flex-direction: row; flex: 1; gap: 20px; overflow: hidden; min-height: 0; margin-bottom: 15px;">
-                        <div id="version-preview" style="flex: 1; min-width: 0; min-height: 0; height: 100%; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6; box-sizing: border-box;">Select a version to preview</div>
+                        <div id="version-preview-container" style="flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 10px;">
+                            <div id="version-preview" style="flex: 1; min-height: 0; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6; box-sizing: border-box;">Select a version to preview</div>
+                            <button id="restore-version-btn" onclick="restoreSelectedVersion()" disabled style="padding: 8px 16px; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; color: #555; font-family: monospace; font-size: 0.85rem; cursor: not-allowed; transition: all 0.2s ease; width: 100%; opacity: 0.5;">Restore This Version</button>
+                        </div>
                         <div id="version-list-container" style="width: 120px; min-width: 120px; flex-shrink: 0; overflow-y: auto;">
                             <div id="version-list">
                                 <div style='color: #9ca3af; text-align: center; padding: 20px; font-size: 0.7rem;'>No versions yet.</div>
@@ -2270,6 +2279,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         // Initialize global storage for version articles
         window.versionArticles = [];
+        window.selectedVersionNum = null;
 
         // Function called when clicking a version item
         window.selectVersion = function(versionNum) {
@@ -2279,6 +2289,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             const article = articles.find(a => a.version === versionNum);
             console.log('Found article:', article ? 'yes' : 'no');
             if (article) {
+                window.selectedVersionNum = versionNum;
                 const preview = document.getElementById('version-preview');
                 if (preview) {
                     preview.textContent = article.content;
@@ -2293,8 +2304,78 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 });
             }
         };
+
+        // Function to restore the selected version
+        window.restoreSelectedVersion = function() {
+            if (window.selectedVersionNum === null) {
+                console.log('No version selected');
+                return;
+            }
+            const articles = window.versionArticles || [];
+            const article = articles.find(a => a.version === window.selectedVersionNum);
+            if (article) {
+                // Set the content in the hidden textbox
+                console.log('Attempting to restore article, content length:', article.content.length);
+
+                // Find the hidden input - try multiple selectors
+                let hiddenInput = document.querySelector('#restore-version-input textarea');
+                if (!hiddenInput) {
+                    hiddenInput = document.querySelector('#restore-version-input input');
+                }
+                if (!hiddenInput) {
+                    // Try finding any input inside the component
+                    const wrapper = document.getElementById('restore-version-input');
+                    if (wrapper) {
+                        hiddenInput = wrapper.querySelector('textarea, input');
+                    }
+                }
+
+                console.log('Hidden input found:', hiddenInput ? 'yes' : 'no');
+
+                if (hiddenInput) {
+                    hiddenInput.value = article.content;
+                    // Trigger input event so Gradio picks up the change
+                    hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    console.log('Value set in hidden input');
+                }
+
+                // Small delay to ensure value is set, then trigger the button
+                setTimeout(() => {
+                    // Try multiple selectors for the button
+                    let triggerBtn = document.querySelector('#restore-trigger-btn button');
+                    if (!triggerBtn) {
+                        const wrapper = document.getElementById('restore-trigger-btn');
+                        if (wrapper) {
+                            triggerBtn = wrapper.querySelector('button');
+                        }
+                    }
+
+                    console.log('Trigger button found:', triggerBtn ? 'yes' : 'no');
+
+                    if (triggerBtn) {
+                        triggerBtn.click();
+                        console.log('Button clicked');
+                    }
+                    // Close the panel
+                    const panel = document.getElementById('version-panel');
+                    if (panel) {
+                        panel.classList.remove('visible');
+                    }
+                }, 100);
+            }
+        };
     </script>
     <style>
+        /* Hidden offscreen but still functional for Gradio events */
+        .hidden-offscreen {
+            position: absolute !important;
+            left: -9999px !important;
+            top: -9999px !important;
+            width: 1px !important;
+            height: 1px !important;
+            overflow: hidden !important;
+        }
+
         /* Toolbar nuke (your existing rule kept) */
         .icon-button-wrapper.top-panel.hide-top-corner,
         .icon-button-wrapper.top-panel,
@@ -2482,6 +2563,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
     # Hidden File component for downloads
     download_file = gr.File(visible=False, interactive=False)
+
+    # Hidden components for restore version functionality (visible but hidden via CSS for Gradio compatibility)
+    restore_version_input = gr.Textbox(value="", visible=True, elem_id="restore-version-input", elem_classes=["hidden-offscreen"])
+    restore_trigger_btn = gr.Button("Restore", visible=True, elem_id="restore-trigger-btn", elem_classes=["hidden-offscreen"])
 
     # Route action button to correct function based on dropdown
     def execute_action(selected_tool, topic, user_feedback, num_examples, quality_dist, flaw_type, article_length):
@@ -2781,7 +2866,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                         <button id="close-version-panel" onclick="document.getElementById('version-panel').classList.remove('visible')" style="background: none; border: none; color: #ffffff; font-size: 1.5rem; cursor: pointer; padding: 0; line-height: 1;">&times;</button>
                     </div>
                     <div id="version-panel-content" style="display: flex; flex-direction: row; flex: 1; gap: 20px; overflow: hidden; min-height: 0; margin-bottom: 15px;">
-                        <div id="version-preview" style="flex: 1; min-width: 0; min-height: 0; height: 100%; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6; box-sizing: border-box;">Select a version to preview</div>
+                        <div id="version-preview-container" style="flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; gap: 10px;">
+                            <div id="version-preview" style="flex: 1; min-height: 0; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; padding: 20px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: #e5e7eb; line-height: 1.6; box-sizing: border-box;">Select a version to preview</div>
+                            <button id="restore-version-btn" onclick="restoreSelectedVersion()" disabled style="padding: 8px 16px; background-color: #1a1a1a; border: 2px solid #333; border-radius: 8px; color: #555; font-family: monospace; font-size: 0.85rem; cursor: not-allowed; transition: all 0.2s ease; width: 100%; opacity: 0.5;">Restore This Version</button>
+                        </div>
                         <div id="version-list-container" style="width: 120px; min-width: 120px; flex-shrink: 0; overflow-y: auto;">
                             <div id="version-list"></div>
                         </div>
@@ -2802,6 +2890,22 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 preview.textContent = data.latest_content;
             }
 
+            // Enable/disable restore button based on whether articles exist
+            const restoreBtn = document.getElementById('restore-version-btn');
+            if (restoreBtn) {
+                if (data.articles && data.articles.length > 0) {
+                    restoreBtn.disabled = false;
+                    restoreBtn.style.opacity = '1';
+                    restoreBtn.style.cursor = 'pointer';
+                    restoreBtn.style.color = '#9ca3af';
+                } else {
+                    restoreBtn.disabled = true;
+                    restoreBtn.style.opacity = '0.5';
+                    restoreBtn.style.cursor = 'not-allowed';
+                    restoreBtn.style.color = '#555';
+                }
+            }
+
             // Toggle panel visibility
             const panel = document.getElementById('version-panel');
             if (panel) {
@@ -2813,6 +2917,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 const articles = window.versionArticles || [];
                 const article = articles.find(a => a.version === versionNum);
                 if (article) {
+                    window.selectedVersionNum = versionNum;
                     const preview = document.getElementById('version-preview');
                     if (preview) {
                         preview.textContent = article.content;
@@ -2826,7 +2931,110 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                     });
                 }
             };
+
+            // Set initial selected version to latest
+            if (data.articles && data.articles.length > 0) {
+                window.selectedVersionNum = data.articles[0].version;
+            }
+
+            // Define restoreSelectedVersion function globally
+            window.restoreSelectedVersion = function() {
+                if (window.selectedVersionNum === null) {
+                    console.log('No version selected');
+                    return;
+                }
+                const articles = window.versionArticles || [];
+                const article = articles.find(a => a.version === window.selectedVersionNum);
+                if (article) {
+                    console.log('Attempting to restore article, content length:', article.content.length);
+
+                    // Find the hidden input
+                    let hiddenInput = document.querySelector('#restore-version-input textarea');
+                    if (!hiddenInput) {
+                        hiddenInput = document.querySelector('#restore-version-input input');
+                    }
+                    if (!hiddenInput) {
+                        const wrapper = document.getElementById('restore-version-input');
+                        if (wrapper) {
+                            hiddenInput = wrapper.querySelector('textarea, input');
+                        }
+                    }
+
+                    console.log('Hidden input found:', hiddenInput ? 'yes' : 'no');
+
+                    if (hiddenInput) {
+                        hiddenInput.value = article.content;
+                        hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                        console.log('Value set in hidden input');
+                    }
+
+                    // Small delay then trigger the button
+                    setTimeout(() => {
+                        let triggerBtn = null;
+
+                        // Try direct selector
+                        triggerBtn = document.querySelector('#restore-trigger-btn button');
+                        console.log('Try 1 (#restore-trigger-btn button):', triggerBtn ? 'found' : 'not found');
+
+                        if (!triggerBtn) {
+                            // Try wrapper approach
+                            const wrapper = document.getElementById('restore-trigger-btn');
+                            console.log('Wrapper element:', wrapper);
+                            if (wrapper) {
+                                console.log('Wrapper tagName:', wrapper.tagName);
+                                console.log('Wrapper children:', wrapper.children.length);
+                                triggerBtn = wrapper.querySelector('button');
+                            }
+                        }
+
+                        if (!triggerBtn) {
+                            // Maybe the elem_id is on the button itself
+                            triggerBtn = document.querySelector('button#restore-trigger-btn');
+                            console.log('Try 3 (button#restore-trigger-btn):', triggerBtn ? 'found' : 'not found');
+                        }
+
+                        if (!triggerBtn) {
+                            // Try finding by class
+                            const hiddenBtns = document.querySelectorAll('.hidden-offscreen button');
+                            console.log('Hidden offscreen buttons found:', hiddenBtns.length);
+                            if (hiddenBtns.length > 0) {
+                                triggerBtn = hiddenBtns[0];
+                            }
+                        }
+
+                        console.log('Final trigger button found:', triggerBtn ? 'yes' : 'no');
+
+                        if (triggerBtn) {
+                            triggerBtn.click();
+                            console.log('Button clicked');
+                        }
+                        // Close the panel
+                        const panel = document.getElementById('version-panel');
+                        if (panel) {
+                            panel.classList.remove('visible');
+                        }
+                    }, 100);
+                }
+            };
         }"""
+    )
+
+    # Restore version button click handler
+    def restore_version(content):
+        global current_article_clean
+        if content and content.strip():
+            current_article_clean = content.strip()
+            # Format the restored article for display
+            restored_display = "📝 RESTORED ARTICLE\n"
+            restored_display += "=" * 44 + "\n\n"
+            restored_display += current_article_clean
+            return restored_display
+        return gr.update()
+
+    restore_trigger_btn.click(
+        fn=restore_version,
+        inputs=[restore_version_input],
+        outputs=[article_display]
     )
 
 
