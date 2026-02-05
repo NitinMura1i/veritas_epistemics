@@ -67,6 +67,12 @@ def build_version_history_html():
             version_type = "Post-Critique"
         elif "User Feedback" in article:
             version_type = "User Feedback"
+        elif "RESTORED ARTICLE (from v" in article:
+            import re
+            match = re.search(r'from v(\d+)', article)
+            version_type = f"Restored v{match.group(1)}" if match else "Restored"
+        elif "RESTORED ARTICLE" in article:
+            version_type = "Restored"
         else:
             version_type = "Original"
 
@@ -2030,7 +2036,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             padding: 20px;
             box-sizing: border-box;
             box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
-            transition: right 0.3s ease;
+            transition: right 0.5s ease;
             pointer-events: none;
             display: flex;
             flex-direction: column;
@@ -2330,37 +2336,26 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                     }
                 }
 
-                console.log('Hidden input found:', hiddenInput ? 'yes' : 'no');
-
                 if (hiddenInput) {
-                    hiddenInput.value = article.content;
-                    // Trigger input event so Gradio picks up the change
+                    hiddenInput.value = 'VERSION:' + window.selectedVersionNum + '|||' + article.content;
                     hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    console.log('Value set in hidden input');
                 }
 
-                // Small delay to ensure value is set, then trigger the button
                 setTimeout(() => {
-                    // Try multiple selectors for the button
-                    let triggerBtn = document.querySelector('#restore-trigger-btn button');
-                    if (!triggerBtn) {
-                        const wrapper = document.getElementById('restore-trigger-btn');
-                        if (wrapper) {
-                            triggerBtn = wrapper.querySelector('button');
-                        }
-                    }
-
-                    console.log('Trigger button found:', triggerBtn ? 'yes' : 'no');
-
+                    const triggerBtn = document.querySelector('button#restore-trigger-btn');
                     if (triggerBtn) {
                         triggerBtn.click();
-                        console.log('Button clicked');
                     }
-                    // Close the panel
                     const panel = document.getElementById('version-panel');
-                    if (panel) {
-                        panel.classList.remove('visible');
-                    }
+                    if (panel) { panel.classList.remove('visible'); }
+                    setTimeout(() => {
+                        const toast = document.createElement('div');
+                        toast.textContent = 'Article Restored!';
+                        toast.style.cssText = 'position: fixed !important; top: 53% !important; left: 50% !important; transform: translate(-50%, -50%) !important; background-color: #1a1a1a !important; color: #fff !important; padding: 14px 24px !important; border-radius: 8px !important; border: 2px solid #fff !important; font-family: monospace !important; font-size: 0.9rem !important; z-index: 10000 !important; opacity: 0; transition: opacity 0.3s ease !important;';
+                        document.body.appendChild(toast);
+                        setTimeout(() => { toast.style.opacity = '1'; }, 10);
+                        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => { toast.remove(); }, 300); }, 4000);
+                    }, 400);
                 }, 100);
             }
         };
@@ -2890,14 +2885,14 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 preview.textContent = data.latest_content;
             }
 
-            // Enable/disable restore button based on whether articles exist
+            // Enable/disable restore button (need at least 2 versions to restore)
             const restoreBtn = document.getElementById('restore-version-btn');
             if (restoreBtn) {
-                if (data.articles && data.articles.length > 0) {
+                if (data.articles && data.articles.length > 1) {
                     restoreBtn.disabled = false;
                     restoreBtn.style.opacity = '1';
                     restoreBtn.style.cursor = 'pointer';
-                    restoreBtn.style.color = '#9ca3af';
+                    restoreBtn.style.color = '#fff';
                 } else {
                     restoreBtn.disabled = true;
                     restoreBtn.style.opacity = '0.5';
@@ -2946,73 +2941,30 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 const articles = window.versionArticles || [];
                 const article = articles.find(a => a.version === window.selectedVersionNum);
                 if (article) {
-                    console.log('Attempting to restore article, content length:', article.content.length);
-
-                    // Find the hidden input
                     let hiddenInput = document.querySelector('#restore-version-input textarea');
                     if (!hiddenInput) {
-                        hiddenInput = document.querySelector('#restore-version-input input');
-                    }
-                    if (!hiddenInput) {
                         const wrapper = document.getElementById('restore-version-input');
-                        if (wrapper) {
-                            hiddenInput = wrapper.querySelector('textarea, input');
-                        }
+                        if (wrapper) { hiddenInput = wrapper.querySelector('textarea, input'); }
                     }
-
-                    console.log('Hidden input found:', hiddenInput ? 'yes' : 'no');
-
                     if (hiddenInput) {
-                        hiddenInput.value = article.content;
+                        hiddenInput.value = 'VERSION:' + window.selectedVersionNum + '|||' + article.content;
                         hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
-                        console.log('Value set in hidden input');
                     }
-
-                    // Small delay then trigger the button
                     setTimeout(() => {
-                        let triggerBtn = null;
-
-                        // Try direct selector
-                        triggerBtn = document.querySelector('#restore-trigger-btn button');
-                        console.log('Try 1 (#restore-trigger-btn button):', triggerBtn ? 'found' : 'not found');
-
-                        if (!triggerBtn) {
-                            // Try wrapper approach
-                            const wrapper = document.getElementById('restore-trigger-btn');
-                            console.log('Wrapper element:', wrapper);
-                            if (wrapper) {
-                                console.log('Wrapper tagName:', wrapper.tagName);
-                                console.log('Wrapper children:', wrapper.children.length);
-                                triggerBtn = wrapper.querySelector('button');
-                            }
-                        }
-
-                        if (!triggerBtn) {
-                            // Maybe the elem_id is on the button itself
-                            triggerBtn = document.querySelector('button#restore-trigger-btn');
-                            console.log('Try 3 (button#restore-trigger-btn):', triggerBtn ? 'found' : 'not found');
-                        }
-
-                        if (!triggerBtn) {
-                            // Try finding by class
-                            const hiddenBtns = document.querySelectorAll('.hidden-offscreen button');
-                            console.log('Hidden offscreen buttons found:', hiddenBtns.length);
-                            if (hiddenBtns.length > 0) {
-                                triggerBtn = hiddenBtns[0];
-                            }
-                        }
-
-                        console.log('Final trigger button found:', triggerBtn ? 'yes' : 'no');
-
+                        const triggerBtn = document.querySelector('button#restore-trigger-btn');
                         if (triggerBtn) {
                             triggerBtn.click();
-                            console.log('Button clicked');
                         }
-                        // Close the panel
                         const panel = document.getElementById('version-panel');
-                        if (panel) {
-                            panel.classList.remove('visible');
-                        }
+                        if (panel) { panel.classList.remove('visible'); }
+                        setTimeout(() => {
+                            const toast = document.createElement('div');
+                            toast.textContent = 'Article Restored!';
+                            toast.style.cssText = 'position: fixed !important; top: 53% !important; left: 50% !important; transform: translate(-50%, -50%) !important; background-color: #1a1a1a !important; color: #fff !important; padding: 14px 24px !important; border-radius: 8px !important; border: 2px solid #fff !important; font-family: monospace !important; font-size: 0.9rem !important; z-index: 10000 !important; opacity: 0; transition: opacity 0.3s ease !important;';
+                            document.body.appendChild(toast);
+                            setTimeout(() => { toast.style.opacity = '1'; }, 10);
+                            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => { toast.remove(); }, 300); }, 4000);
+                        }, 400);
                     }, 100);
                 }
             };
@@ -3021,20 +2973,54 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
     # Restore version button click handler
     def restore_version(content):
-        global current_article_clean
+        global current_article_clean, article_history
         if content and content.strip():
-            current_article_clean = content.strip()
+            # Parse version number from input (format: VERSION:X|||CONTENT)
+            version_num = None
+            article_content = content.strip()
+
+            if article_content.startswith("VERSION:") and "|||" in article_content:
+                parts = article_content.split("|||", 1)
+                version_num = parts[0].replace("VERSION:", "").strip()
+                if len(parts) > 1:
+                    article_content = parts[1]
+
+            # Strip any existing headers
+            if "=" * 20 in article_content:
+                header_parts = article_content.split("=" * 20, 1)
+                if len(header_parts) > 1:
+                    article_content = header_parts[1].strip()
+                    while article_content.startswith("="):
+                        article_content = article_content[1:]
+                    article_content = article_content.strip()
+
+            current_article_clean = article_content
+
             # Format the restored article for display
             restored_display = "📝 RESTORED ARTICLE\n"
             restored_display += "=" * 44 + "\n\n"
             restored_display += current_article_clean
-            return restored_display
-        return gr.update()
+
+            # Add to article history with "Restored (from vX)" label
+            if version_num:
+                history_entry = f"📝 RESTORED ARTICLE (from v{version_num})\n"
+            else:
+                history_entry = "📝 RESTORED ARTICLE\n"
+            history_entry += "=" * 44 + "\n\n"
+            history_entry += current_article_clean
+            article_history.append(history_entry)
+
+            # Return placeholder values for all three panels
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!"
+            right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 42 + "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation."
+
+            return left_placeholder, restored_display, right_placeholder
+        return gr.update(), gr.update(), gr.update()
 
     restore_trigger_btn.click(
         fn=restore_version,
         inputs=[restore_version_input],
-        outputs=[article_display]
+        outputs=[left_panel, article_display, right_panel]
     )
 
 
