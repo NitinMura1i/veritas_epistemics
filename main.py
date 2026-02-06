@@ -2560,8 +2560,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     download_file = gr.File(visible=False, interactive=False)
 
     # Hidden components for restore version functionality (visible but hidden via CSS for Gradio compatibility)
-    restore_version_input = gr.Textbox(value="", visible=True, elem_id="restore-version-input", elem_classes=["hidden-offscreen"])
-    restore_trigger_btn = gr.Button("Restore", visible=True, elem_id="restore-trigger-btn", elem_classes=["hidden-offscreen"])
+    restore_version_input = gr.Textbox(
+        value="", visible=True, elem_id="restore-version-input", elem_classes=["hidden-offscreen"])
+    restore_trigger_btn = gr.Button(
+        "Restore", visible=True, elem_id="restore-trigger-btn", elem_classes=["hidden-offscreen"])
 
     # Route action button to correct function based on dropdown
     def execute_action(selected_tool, topic, user_feedback, num_examples, quality_dist, flaw_type, article_length):
@@ -2615,7 +2617,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         topic_disabled = (selected_tool not in [
                           "Article Generation", "Synthetic Data"])
 
-        # Check if article exists for epistemic tools (Synthetic Data doesn't need an existing article)
         # For Synthetic Data, disable button if topic is empty
         if selected_tool == "Synthetic Data":
             button_disabled = not topic or topic.strip() == ""
@@ -3011,8 +3012,10 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             article_history.append(history_entry)
 
             # Return placeholder values for all three panels
-            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!"
-            right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 42 + "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation."
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + \
+                "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!"
+            right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 42 + \
+                "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation."
 
             return left_placeholder, restored_display, right_placeholder
         return gr.update(), gr.update(), gr.update()
