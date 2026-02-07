@@ -1223,6 +1223,9 @@ def generate_initial_article(topic: str):
     """Generate initial article with Wikipedia-first optimization (web search fallback)."""
     global article_history, current_sources, current_article_clean, current_grounding_context, original_article
 
+    # Clear version history for new topic
+    article_history = []
+
     # Status in left panel
     status_log = "🔍 PROCESS LOG\n"
     status_log += "=" * 44 + "\n\n"
