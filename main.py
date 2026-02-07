@@ -990,7 +990,7 @@ def generate_edit_log(original: str, revised: str) -> str:
     else:
         edit_log += "No significant changes detected.\n"
 
-    # Note source changes if any
+    # Note source changes if there are any
     if revised_source_count != original_source_count:
         edit_log += f"Sources expanded from {original_source_count} to {revised_source_count}\n"
 
@@ -3027,5 +3027,5 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     )
 
 
-# Launch without footer
+# Launch with no footer
 demo.launch(show_api=False)
