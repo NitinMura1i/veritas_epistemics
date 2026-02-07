@@ -1220,13 +1220,13 @@ def fetch_content_from_url(url: str) -> Optional[Dict[str, str]]:
 
 
 def generate_initial_article(topic: str):
-    """Generate initial article with live web search grounding (Wikipedia fallback)."""
+    """Generate initial article with Wikipedia-first optimization (web search fallback)."""
     global article_history, current_sources, current_article_clean, current_grounding_context, original_article
 
     # Status in left panel
     status_log = "🔍 PROCESS LOG\n"
     status_log += "=" * 44 + "\n\n"
-    status_log += "🔎 Searching the web for relevant sources...\n\n"
+    status_log += "🚀 Starting article generation...\n\n"
 
     # Show loading message in center panel
     article_placeholder = "📝 YOUR ARTICLE\n" + "=" * 44 + \
@@ -1234,8 +1234,8 @@ def generate_initial_article(topic: str):
 
     # Show loading message in right panel
     loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
-        "\n\nSearching web for sources...\n\nSources will appear here when article generation is complete."
-    # (center, left, right, filepath)
+        "\n\nSearching for sources...\n\nSources will appear here when article generation is complete."
+
     yield article_placeholder, status_log, loading_message, None
 
     # Initialize variables
@@ -1243,174 +1243,75 @@ def generate_initial_article(topic: str):
     current_sources = []
     source_context = ""
     streaming_sources_display = ""
-    used_fallback = False
+    use_wikipedia = False
+    wiki_data = None
 
-    try:
-        # Create chat with live web search enabled
-        chat = client.chat.create(
-            model="grok-4-1-fast",
-            include=["inline_citations"],
-            tools=[web_search()],
-        )
+    # Step 1: Try Wikipedia first (fast path)
+    status_log += "🔎 Searching for sources...\n\n"
+    yield article_placeholder, status_log, loading_message, None
 
-        chat.append(system(
-            "You are an expert knowledge synthesizer focused on epistemic integrity. "
-            "Search the web for ONE authoritative source about the topic, then write a factual, "
-            "well-sourced article with inline citations. Use exactly 1 high-quality source. "
-            "Be clear about certainty levels and avoid speculation."
-        ))
+    wiki_data = fetch_wikipedia(topic)  # This API call IS the natural delay
 
-        prompt = f"""Search the web for authoritative information about "{topic}", then write a comprehensive, factual article.
+    if wiki_data:
+        # Check match quality - calculate word overlap
+        topic_words = set(topic.lower().split())
+        title_words = set(wiki_data['title'].lower().split())
 
-Requirements:
-1. Search for and use exactly 1 high-quality, authoritative source (prefer established sources like Wikipedia, academic sites, reputable news)
-2. Write in encyclopedic style (factual, neutral, well-structured)
-3. Include inline citations referencing your source
-4. Add a "## Sources" section at the end listing the reference with URL
-5. Be clear about certainty levels - use phrases like "evidence suggests", "widely accepted", etc.
-6. Length: EXACTLY 300 words (excluding the Sources section)
-7. Structure: Introduction, 2-3 main sections, conclusion, sources
+        # Remove common words that don't indicate topic match
+        stop_words = {'the', 'a', 'an', 'of', 'in', 'on', 'at',
+                      'to', 'for', 'and', 'or', 'is', 'are', 'was', 'were'}
+        topic_words = topic_words - stop_words
+        title_words = title_words - stop_words
 
-Format the article in clean markdown."""
-
-        chat.append(user(prompt))
-
-        status_log += "📝 Generating article with live web search...\n\n"
-        yield article_placeholder, status_log, loading_message, None
-
-        # Stream the article generation
-        article_content = ""
-        final_response = None
-
-        for response, chunk in chat.stream():
-            final_response = response
-            if chunk.content:
-                article_content += chunk.content
-
-                # Build streaming article display (sources pending)
-                streaming_article = "📝 YOUR ARTICLE\n"
-                streaming_article += "=" * 44 + "\n\n"
-                streaming_article += article_content
-
-                # Yield: center (streaming article), left (status log), right (loading), filepath
-                yield streaming_article, status_log, loading_message, None
-
-        # Extract the actual cited URL from the article text (more reliable than response.citations)
-        # response.citations returns ALL URLs encountered, not just the ones used
-        import re
-        cited_urls = re.findall(r'\]\((https?://[^\)]+)\)', article_content)
-        # Deduplicate while preserving order
-        seen = set()
-        unique_cited_urls = []
-        for url in cited_urls:
-            if url not in seen:
-                seen.add(url)
-                unique_cited_urls.append(url)
-
-        # Use the first actually-cited URL, or fall back to response.citations
-        citations = unique_cited_urls[:1] if unique_cited_urls else []
-        if not citations and final_response and hasattr(final_response, 'citations') and final_response.citations:
-            citations = list(final_response.citations)[:1]
-
-        if citations:
-            status_log += "📄 Found web source\n\n"
-
-            # Fetch content from the source URL
-            url = citations[0]
-            source_data = fetch_content_from_url(url)
-
-            # Build source display for right panel
-            streaming_sources_display = "📚 WEB SOURCE\n"
-            streaming_sources_display += "=" * 44 + "\n\n"
-
-            if source_data and source_data.get("content"):
-                # Wikipedia or other source with content - show first 250 words
-                content = source_data["content"]
-                words = content.split()
-                truncated_content = " ".join(words[:250])
-                if len(words) > 250:
-                    truncated_content += "..."
-
-                streaming_sources_display += f"Source: {url}\n\n"
-                streaming_sources_display += "-" * 44 + "\n\n"
-                streaming_sources_display += truncated_content
-
-                source_notes.append(f"[{source_data['title']}]({url})")
-                current_sources.append({
-                    "name": source_data["title"],
-                    "type": "Web",
-                    "url": url,
-                    "content": content
-                })
-                source_context = f"Web Source: {source_data['title']}\n\n{content[:3000]}"
-            else:
-                # Non-Wikipedia or failed fetch - just show URL
-                streaming_sources_display += f"**{url}**\n\n"
-                streaming_sources_display += "(Content preview not available for this source)"
-
-                source_notes.append(f"[Source]({url})")
-                current_sources.append({
-                    "name": url,
-                    "type": "Web",
-                    "url": url
-                })
-                source_context = f"Web Source: {url}"
+        if topic_words:
+            overlap = len(topic_words & title_words)
+            match_ratio = overlap / len(topic_words)
         else:
-            status_log += "⚠️ No citations found in response\n\n"
+            match_ratio = 0
 
-    except Exception as e:
-        status_log += f"⚠️ Live search failed: {str(e)}\n\n"
+        # Also check for exact match (case-insensitive)
+        exact_match = topic.lower().strip(
+        ) == wiki_data['title'].lower().strip()
 
-    # Fallback to Wikipedia if no sources found
-    if not current_sources:
-        used_fallback = True
-        status_log += "⏳ Falling back to Wikipedia...\n\n"
-        yield article_placeholder, status_log, loading_message, None
-
-        wiki_data = fetch_wikipedia(topic)
-
-        if wiki_data:
-            status_log += f"✅ Found Wikipedia article: '{wiki_data['title']}'\n\n"
-
-            streaming_sources_display = "📚 WIKIPEDIA ARTICLE (FALLBACK)\n"
-            streaming_sources_display += "=" * 44 + "\n\n"
-            streaming_sources_display += f"**{wiki_data['title']}**\n\n"
-            streaming_sources_display += f"Source: {wiki_data['url']}\n\n"
-            streaming_sources_display += "---\n\n"
-            streaming_sources_display += f"{wiki_data['content'][:2500]}"
-
-            source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"
-            source_notes.append(
-                f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
-            current_sources = [{"name": wiki_data['title'], "type": "Wikipedia",
-                                "url": wiki_data['url'], "content": wiki_data['content']}]
+        if exact_match or match_ratio >= 0.7:
+            use_wikipedia = True
+            status_log += f"🎯 Found: '{wiki_data['title']}'\n\n"
         else:
-            status_log += f"⚠️ No Wikipedia article found for '{topic}'\n\n"
-            source_context = f"No specific source found. Generating article about: {topic}"
-            streaming_sources_display = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
-                "\n\n⚠️ No sources found.\n\nArticle generated from general knowledge."
-
-    # Build source note for article header
-    if source_notes:
-        source_note = f"Grounded in: {' + '.join(source_notes)}"
+            status_log += f"⚠️ No exact match found\n\n"
     else:
-        source_note = "⚠️ No sources found - generated from general knowledge"
+        status_log += "⚠️ No direct source found\n\n"
 
-    # If we used fallback, need to regenerate article with Wikipedia context
-    if used_fallback and current_sources:
-        status_log += "📝 Generating article with Wikipedia source...\n\n"
+    yield article_placeholder, status_log, loading_message, None
+
+    # Path A: Use Wikipedia (fast path)
+    if use_wikipedia and wiki_data:
+        # Set up source display
+        streaming_sources_display = "📚 SOURCE MATERIAL\n"
+        streaming_sources_display += "=" * 44 + "\n\n"
+        streaming_sources_display += f"**{wiki_data['title']}**\n\n"
+        streaming_sources_display += f"Source: {wiki_data['url']}\n\n"
+        streaming_sources_display += "---\n\n"
+        streaming_sources_display += f"{wiki_data['content'][:2500]}"
+
+        source_context = f"Wikipedia Article: {wiki_data['title']}\n\n{wiki_data['content'][:3000]}"
+        source_notes.append(
+            f"[Wikipedia: {wiki_data['title']}]({wiki_data['url']})")
+        current_sources = [{"name": wiki_data['title'], "type": "Wikipedia",
+                            "url": wiki_data['url'], "content": wiki_data['content']}]
+
+        status_log += "📝 Generating article...\n\n"
         yield article_placeholder, status_log, streaming_sources_display, None
 
         try:
-            fallback_chat = client.chat.create(model="grok-4-1-fast")
+            wiki_chat = client.chat.create(model="grok-4-1-fast")
 
-            fallback_chat.append(system(
+            wiki_chat.append(system(
                 "You are an expert knowledge synthesizer focused on epistemic integrity. "
                 "Write factual, well-sourced articles with inline citations. "
                 "Be clear about certainty levels and avoid speculation."
             ))
 
-            fallback_prompt = f"""You are an expert knowledge synthesizer. Write a comprehensive, factual article about "{topic}".
+            wiki_prompt = f"""Write a comprehensive, factual article about "{topic}".
 
 Use the following Wikipedia content as your primary source:
 
@@ -1426,10 +1327,10 @@ Requirements:
 
 Format the article in clean markdown."""
 
-            fallback_chat.append(user(fallback_prompt))
+            wiki_chat.append(user(wiki_prompt))
 
             article_content = ""
-            for response, chunk in fallback_chat.stream():
+            for response, chunk in wiki_chat.stream():
                 if chunk.content:
                     article_content += chunk.content
 
@@ -1440,10 +1341,146 @@ Format the article in clean markdown."""
                     yield streaming_article, status_log, streaming_sources_display, None
 
         except Exception as e:
-            status_log += f"❌ Error generating article: {str(e)}\n\nPlease try again.\n"
+            status_log += f"❌ Error generating article: {str(e)}\n\n"
             error_article = "📝 YOUR ARTICLE\n" + "=" * 44 + \
                 "\n\n❌ Error generating article. Please try again."
             yield error_article, status_log, streaming_sources_display, None
+            return
+
+    # Path B: Use web search (slower path for specific/niche topics)
+    else:
+        status_log += "🌐 Using web search for specific content...\n\n"
+        yield article_placeholder, status_log, loading_message, None
+
+        try:
+            chat = client.chat.create(
+                model="grok-4-1-fast",
+                include=["inline_citations"],
+                tools=[web_search()],
+            )
+
+            chat.append(system(
+                "You are an expert knowledge synthesizer focused on epistemic integrity. "
+                "Search the web for ONE authoritative source about the topic, then write a factual, "
+                "well-sourced article with inline citations. Use exactly 1 high-quality source. "
+                "Be clear about certainty levels and avoid speculation."
+            ))
+
+            prompt = f"""Search the web for authoritative information about "{topic}", then write a comprehensive, factual article.
+
+Requirements:
+1. Search for and use exactly 1 high-quality, authoritative source (prefer academic sites, reputable news, official sources)
+2. Write in encyclopedic style (factual, neutral, well-structured)
+3. Include inline citations referencing your source
+4. Add a "## Sources" section at the end listing the reference with URL
+5. Be clear about certainty levels - use phrases like "evidence suggests", "widely accepted", etc.
+6. Length: EXACTLY 300 words (excluding the Sources section)
+7. Structure: Introduction, 2-3 main sections, conclusion, sources
+
+Format the article in clean markdown."""
+
+            chat.append(user(prompt))
+
+            status_log += "📡 Searching web sources...\n\n"
+            yield article_placeholder, status_log, loading_message, None
+
+            import time
+            article_content = ""
+            final_response = None
+            first_chunk = True
+            start_time = time.time()
+            last_update_time = start_time
+            update_messages = [
+                (5, "🔍 Finding relevant sources..."),
+                (10, "📖 Reading source content..."),
+                (15, "✨ Preparing article structure..."),
+            ]
+            next_update_idx = 0
+
+            for response, chunk in chat.stream():
+                final_response = response
+
+                # Time-based updates while waiting for content
+                elapsed = time.time() - start_time
+                if first_chunk and next_update_idx < len(update_messages):
+                    threshold, message = update_messages[next_update_idx]
+                    if elapsed >= threshold:
+                        status_log += f"{message}\n\n"
+                        yield article_placeholder, status_log, loading_message, None
+                        next_update_idx += 1
+
+                if chunk.content:
+                    if first_chunk:
+                        status_log += "📝 Writing article...\n\n"
+                        first_chunk = False
+
+                    article_content += chunk.content
+                    streaming_article = "📝 YOUR ARTICLE\n"
+                    streaming_article += "=" * 44 + "\n\n"
+                    streaming_article += article_content
+                    yield streaming_article, status_log, loading_message, None
+
+            # Extract cited URLs
+            import re
+            cited_urls = re.findall(
+                r'\]\((https?://[^\)]+)\)', article_content)
+            seen = set()
+            unique_cited_urls = []
+            for url in cited_urls:
+                if url not in seen:
+                    seen.add(url)
+                    unique_cited_urls.append(url)
+
+            citations = unique_cited_urls[:1] if unique_cited_urls else []
+            if not citations and final_response and hasattr(final_response, 'citations') and final_response.citations:
+                citations = list(final_response.citations)[:1]
+
+            if citations:
+                status_log += "📄 Processing source...\n\n"
+                yield streaming_article, status_log, loading_message, None
+
+                url = citations[0]
+                source_data = fetch_content_from_url(url)
+
+                streaming_sources_display = "📚 WEB SOURCE\n"
+                streaming_sources_display += "=" * 44 + "\n\n"
+
+                if source_data and source_data.get("content"):
+                    content = source_data["content"]
+                    words = content.split()
+                    truncated_content = " ".join(words[:250])
+                    if len(words) > 250:
+                        truncated_content += "..."
+
+                    streaming_sources_display += f"Source: {url}\n\n"
+                    streaming_sources_display += "-" * 44 + "\n\n"
+                    streaming_sources_display += truncated_content
+
+                    source_notes.append(f"[{source_data['title']}]({url})")
+                    current_sources.append({
+                        "name": source_data["title"],
+                        "type": "Web",
+                        "url": url,
+                        "content": content
+                    })
+                    source_context = f"Web Source: {source_data['title']}\n\n{content[:3000]}"
+                else:
+                    streaming_sources_display += f"**{url}**\n\n"
+                    streaming_sources_display += "(Content preview not available for this source)"
+                    source_notes.append(f"[Source]({url})")
+                    current_sources.append(
+                        {"name": url, "type": "Web", "url": url})
+                    source_context = f"Web Source: {url}"
+            else:
+                status_log += "⚠️ No citations found in response\n\n"
+                streaming_sources_display = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
+                    "\n\n⚠️ No sources found.\n\nArticle generated from general knowledge."
+
+        except Exception as e:
+            status_log += f"❌ Web search failed: {str(e)}\n\n"
+            error_article = "📝 YOUR ARTICLE\n" + "=" * 44 + \
+                "\n\n❌ Error generating article. Please try again."
+            yield error_article, status_log, loading_message, None
             return
 
     # Add header at the top
