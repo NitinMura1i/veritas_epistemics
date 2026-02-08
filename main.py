@@ -1,15 +1,28 @@
+from xai_sdk.tools import web_search
+from xai_sdk.chat import user, system
+from xai_sdk import Client
+import ray
 import os
+import logging
 from dotenv import load_dotenv
 import gradio as gr
 import requests
 from typing import Dict, Optional
 from autocorrect import Speller
 
-from xai_sdk import Client
-from xai_sdk.chat import user, system
-from xai_sdk.tools import web_search
+# Suppress Ray's warnings before importing
+logging.getLogger("ray").setLevel(logging.ERROR)
+
 
 load_dotenv()
+
+# Initialize Ray at startup with minimal logging
+ray.init(
+    ignore_reinit_error=True,
+    logging_level=logging.ERROR,
+    include_dashboard=False,
+    _metrics_export_port=None,
+)
 
 api_key = os.getenv("XAI_API_KEY")
 if api_key is None:
@@ -534,6 +547,141 @@ def run_user_feedback(user_feedback):
         yield center_display, user_feedback, error_display, None
 
 
+# ============================================================================
+# RAY PARALLEL PROCESSING FOR SYNTHETIC DATA GENERATION
+# ============================================================================
+
+@ray.remote
+def generate_single_example(api_key: str, topic: str, example_id: int, quality: str, target_flaw: str, word_range: str):
+    """
+    Ray remote function to generate and label a single synthetic example.
+    Runs in parallel with other examples for faster batch generation.
+
+    Args:
+        api_key: xAI API key (needed because Ray runs in separate process)
+        topic: The topic to generate an article about
+        example_id: The ID number for this example
+        quality: Target quality tier (excellent, good, fair, poor, terrible)
+        target_flaw: The type of epistemic flaw to include
+        word_range: Word count range for the article
+
+    Returns:
+        dict: Generated article with labels and metadata
+    """
+    import datetime
+    import re
+    from xai_sdk import Client
+    from xai_sdk.chat import user, system
+
+    # Create client inside Ray worker (can't share client across processes)
+    worker_client = Client(api_key=api_key, timeout=3600)
+
+    # Build quality instruction based on target quality
+    if quality == "excellent":
+        quality_instruction = """Generate an epistemically EXCELLENT article (should score 9-10 on all dimensions):
+- Use precise hedging language ("suggests", "indicates", "may", "appears to") for uncertain claims
+- Include specific citations with sources for ALL major claims (e.g., "According to [Source, Year]...")
+- Present multiple perspectives on any debatable points
+- Explicitly distinguish between established facts and ongoing research/speculation
+- Include caveats about data limitations or methodological constraints
+- Use measured, qualified language throughout - no absolute statements without ironclad evidence
+- Include a Sources/References section with specific attributions"""
+    elif quality == "good":
+        quality_instruction = """Generate a GOOD quality article (target 6-8 scores):
+- Include SPECIFIC citations for most claims (e.g., "According to [Source, Year]...")
+- Use appropriate hedging language for most statements ("suggests", "indicates", "research shows")
+- Allow only 1-2 minor lapses: one claim without citation OR one slightly promotional phrase
+- Maintain neutral, informative tone overall
+- Present facts objectively without one-sided framing
+- Include a proper Sources section with multiple references"""
+    elif quality == "fair":
+        quality_instruction = """Generate a FAIR quality article (target 4-6 scores):
+- Include SOME specific citations, but leave several significant claims unsourced
+- Mix hedging with definitive statements
+- Attempt balance but lean slightly positive/promotional
+- Include basic sourcing attempts even if vague
+- Should feel like a decent Wikipedia article with noticeable gaps"""
+    elif quality == "poor":
+        quality_instruction = """Generate an article with significant epistemic problems:
+- Many claims lack sources or citations
+- Overconfident language throughout ("X is", "Y proves", etc.)
+- Missing important qualifiers and hedges
+- One-sided framing on debatable topics
+- Presents speculation as fact in multiple places"""
+    else:  # terrible
+        quality_instruction = """Generate an article with severe epistemic failures:
+- Almost no citations or sources provided
+- Extreme overconfidence and absolutist language
+- No hedging or uncertainty acknowledgment
+- Heavily biased framing
+- Speculation presented as definitive fact"""
+
+    # Generate the article
+    generator_chat = worker_client.chat.create(model="grok-4-1-fast-reasoning")
+    generator_chat.append(system(
+        f"You are generating a synthetic training example for an epistemic quality classifier.\n\n"
+        f"{quality_instruction}\n\n"
+        f"Write a {word_range} word article about the given topic with the specified epistemic characteristics. "
+        f"Output ONLY the article text in markdown format. Include a brief Sources section if appropriate."
+    ))
+    generator_chat.append(user(f"Generate an article about: {topic}"))
+
+    generated_article = ""
+    for response, chunk in generator_chat.stream():
+        if chunk.content:
+            generated_article += chunk.content
+
+    # Label the article
+    labeler_chat = worker_client.chat.create(model="grok-4-1-fast-reasoning")
+    labeler_chat.append(system(
+        "You are an epistemic quality labeler. Analyze the article and provide scores (0-10) for:\n"
+        "- source_quality: How well claims are sourced and cited\n"
+        "- certainty_appropriateness: Whether certainty language matches evidence strength\n"
+        "- bias_level: How balanced vs biased the framing is (10 = very balanced, 0 = very biased)\n"
+        "- completeness: Whether important caveats and limitations are mentioned\n\n"
+        "Format your response as:\n"
+        "SOURCE_QUALITY: [0-10]\n"
+        "CERTAINTY: [0-10]\n"
+        "BIAS: [0-10]\n"
+        "COMPLETENESS: [0-10]\n"
+        "FLAWS: [comma-separated list of specific issues]"
+    ))
+    labeler_chat.append(user(f"Label this article:\n\n{generated_article}"))
+
+    label_response = ""
+    for response, chunk in labeler_chat.stream():
+        if chunk.content:
+            label_response += chunk.content
+
+    # Parse labels
+    source_quality = int(re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response).group(
+        1)) if re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response) else 5
+    certainty = int(re.search(r'CERTAINTY:\s*(\d+)', label_response).group(1)
+                    ) if re.search(r'CERTAINTY:\s*(\d+)', label_response) else 5
+    bias = int(re.search(r'BIAS:\s*(\d+)', label_response).group(1)
+               ) if re.search(r'BIAS:\s*(\d+)', label_response) else 5
+    completeness = int(re.search(r'COMPLETENESS:\s*(\d+)', label_response).group(1)
+                       ) if re.search(r'COMPLETENESS:\s*(\d+)', label_response) else 5
+    flaws_match = re.search(r'FLAWS:\s*(.+)', label_response)
+    flaws = flaws_match.group(1).strip() if flaws_match else "none identified"
+
+    return {
+        "id": example_id,
+        "topic": topic,
+        "article": generated_article,
+        "target_quality": quality,
+        "target_flaw": target_flaw,
+        "labels": {
+            "source_quality": source_quality,
+            "certainty_appropriateness": certainty,
+            "bias_balance": bias,
+            "completeness": completeness
+        },
+        "identified_flaws": flaws,
+        "generated_at": datetime.datetime.now().isoformat()
+    }
+
+
 def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
     """Generate synthetic training data with controlled epistemic properties."""
     import json
@@ -618,35 +766,127 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
     metadata_display = "📋 DATASET METADATA\n" + "=" * 44 + "\n\n"
 
     try:
-        for i in range(num_examples):
-            # Select quality tier and specific flaw for this example
-            quality = quality_tiers[i % len(quality_tiers)]
+        # ================================================================
+        # PARALLEL PROCESSING WITH RAY (for 3+ examples)
+        # Ray is initialized at app startup for cleaner operation
+        # ================================================================
+        if num_examples >= 3:
+            log += f"⚡ Using parallel processing for {num_examples} examples...\n\n"
+            yield center_preview, log, metadata_display, None
 
-            # Determine target flaw based on flaw_type selection
-            # Excellent quality always has no flaws, regardless of flaw_type
-            if quality == "excellent":
-                target_flaw = "none"
-            elif flaw_type == "Auto":
-                # Map quality to specific epistemic flaws automatically
-                flaw_map = {
-                    "good": "minor_overcertainty",
-                    "fair": "missing_citations",
-                    "poor": "multiple_flaws",
-                    "terrible": "severe_bias_and_overstatements"
-                }
-                target_flaw = flaw_map.get(quality, "none")
-            elif flaw_type == "Citations":
-                target_flaw = "missing_citations"
-            elif flaw_type == "Certainty":
-                target_flaw = "overcertainty"
-            elif flaw_type == "Bias":
-                target_flaw = "biased_framing"
-            elif flaw_type == "Multiple":
-                target_flaw = "multiple_flaws"
-            else:
-                target_flaw = "auto"
+            # Prepare all example configurations
+            example_configs = []
+            for i in range(num_examples):
+                quality = quality_tiers[i % len(quality_tiers)]
 
-            # Update log
+                if quality == "excellent":
+                    target_flaw = "none"
+                elif flaw_type == "Auto":
+                    flaw_map = {
+                        "good": "minor_overcertainty",
+                        "fair": "missing_citations",
+                        "poor": "multiple_flaws",
+                        "terrible": "severe_bias_and_overstatements"
+                    }
+                    target_flaw = flaw_map.get(quality, "none")
+                elif flaw_type == "Citations":
+                    target_flaw = "missing_citations"
+                elif flaw_type == "Certainty":
+                    target_flaw = "overcertainty"
+                elif flaw_type == "Bias":
+                    target_flaw = "biased_framing"
+                elif flaw_type == "Multiple":
+                    target_flaw = "multiple_flaws"
+                else:
+                    target_flaw = "auto"
+
+                example_configs.append((i + 1, quality, target_flaw))
+
+            # Launch all examples in parallel using Ray
+            log += f"🚀 Launching {num_examples} parallel generation tasks...\n\n"
+
+            # Show friendly messages in center and right panels while generating
+            center_preview = "📝 GENERATED ARTICLES\n" + "=" * 44 + "\n\n"
+            center_preview += "**Your synthetic data is being generated...**\n\n"
+            center_preview += f"Generating {num_examples} examples in parallel.\n"
+            center_preview += "This may take a moment. Results will appear here shortly.\n"
+
+            metadata_display = "📋 DATASET METADATA\n" + "=" * 44 + "\n\n"
+            metadata_display += "**Awaiting results...**\n\n"
+            metadata_display += "Quality scores and flaw analysis\n"
+            metadata_display += "will appear here once complete.\n"
+
+            yield center_preview, log, metadata_display, None
+
+            futures = [
+                generate_single_example.remote(
+                    api_key, topic, ex_id, quality, flaw, word_range)
+                for ex_id, quality, flaw in example_configs
+            ]
+
+            # Wait for all to complete and collect results
+            log += f"⏳ Generating all examples simultaneously...\n\n"
+            yield center_preview, log, metadata_display, None
+
+            synthetic_dataset = ray.get(futures)
+
+            # Sort by ID to maintain order
+            synthetic_dataset.sort(key=lambda x: x["id"])
+
+            log += f"✅ All {num_examples} examples generated successfully!\n\n"
+
+            # Build final displays
+            center_preview = "📝 GENERATED ARTICLES\n" + "=" * 44 + "\n\n"
+            for entry in synthetic_dataset:
+                center_preview += f"**Example {entry['id']}/{num_examples}** (Quality: {entry['target_quality'].upper()})\n"
+                center_preview += "-" * 44 + "\n\n"
+                center_preview += entry['article'] + "\n\n"
+                center_preview += "=" * 44 + "\n\n"
+
+            metadata_display = "📋 DATASET METADATA\n" + "=" * 44 + "\n\n"
+            for entry in synthetic_dataset:
+                metadata_display += f"**Example {entry['id']}** - {entry['target_quality'].upper()}\n"
+                metadata_display += f"Source Quality: {entry['labels']['source_quality']}/10\n"
+                metadata_display += f"Certainty Appropriateness: {entry['labels']['certainty_appropriateness']}/10\n"
+                metadata_display += f"Bias Balance: {entry['labels']['bias_balance']}/10\n"
+                metadata_display += f"Completeness: {entry['labels']['completeness']}/10\n"
+                metadata_display += f"Flaws: {entry['identified_flaws']}\n\n"
+
+            yield center_preview, log, metadata_display, None
+
+        # ================================================================
+        # SEQUENTIAL PROCESSING (for 1-2 examples, with live streaming)
+        # ================================================================
+        else:
+            for i in range(num_examples):
+                # Select quality tier and specific flaw for this example
+                quality = quality_tiers[i % len(quality_tiers)]
+
+                # Determine target flaw based on flaw_type selection
+                # Excellent quality always has no flaws, regardless of flaw_type
+                if quality == "excellent":
+                    target_flaw = "none"
+                elif flaw_type == "Auto":
+                    # Map quality to specific epistemic flaws automatically
+                    flaw_map = {
+                        "good": "minor_overcertainty",
+                        "fair": "missing_citations",
+                        "poor": "multiple_flaws",
+                        "terrible": "severe_bias_and_overstatements"
+                    }
+                    target_flaw = flaw_map.get(quality, "none")
+                elif flaw_type == "Citations":
+                    target_flaw = "missing_citations"
+                elif flaw_type == "Certainty":
+                    target_flaw = "overcertainty"
+                elif flaw_type == "Bias":
+                    target_flaw = "biased_framing"
+                elif flaw_type == "Multiple":
+                    target_flaw = "multiple_flaws"
+                else:
+                    target_flaw = "auto"
+
+                # Update log
             log += f"📝 Generating example {i+1}/{num_examples}...\n"
             log += f"   Quality tier: {quality}\n"
             log += f"   Target flaw: {target_flaw}\n\n"
