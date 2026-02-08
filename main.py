@@ -1,37 +1,22 @@
-from xai_sdk.tools import web_search
-from xai_sdk.chat import user, system
-from xai_sdk import Client
-import ray
+# main.py
+# Gradio UI layout and event wiring
+
 import os
-import logging
-from dotenv import load_dotenv
 import gradio as gr
 import requests
 from typing import Dict, Optional
 from autocorrect import Speller
+
+# Local imports
 from styles import STYLES_AND_SCRIPTS
+from config import client, api_key
 
-# Suppress Ray's warnings before importing
-logging.getLogger("ray").setLevel(logging.ERROR)
+# xAI SDK imports needed for chat
+from xai_sdk.chat import user, system
+from xai_sdk.tools import web_search
+import ray
 
-
-load_dotenv()
-
-# Initialize Ray at startup with minimal logging
-ray.init(
-    ignore_reinit_error=True,
-    logging_level=logging.ERROR,
-    include_dashboard=False,
-    _metrics_export_port=None,
-)
-
-api_key = os.getenv("XAI_API_KEY")
-if api_key is None:
-    raise ValueError("XAI_API_KEY not found in .env file!")
-
-client = Client(api_key=api_key, timeout=3600)
-
-# State management
+# Global state management (kept in main.py for proper 'global' keyword usage)
 article_history = []
 current_sources = []
 source_visible = False  # Track if source panel is visible
