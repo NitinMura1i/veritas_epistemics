@@ -2690,8 +2690,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 "Multi-Agent Debate",
                 "Self-Critique",
                 "Synthetic Data",
-                "Epistemic Score",
-                "Update Simulation",
                 "User Feedback"
             ],
             show_label=False,
@@ -2886,8 +2884,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             "Multi-Agent Debate": "Start Debate",
             "Self-Critique": "Critique Article",
             "Synthetic Data": "Generate Data",
-            "Epistemic Score": "Score Article",
-            "Update Simulation": "Simulate Updates",
             "User Feedback": "Collect Feedback"
         }
 
