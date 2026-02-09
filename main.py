@@ -855,4 +855,4 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
 
 # Launch with no footer
-demo.launch(show_api=False)
+demo.launch(show_api=False, share=True)

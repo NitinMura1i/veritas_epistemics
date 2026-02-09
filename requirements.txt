@@ -1,0 +1,6 @@
+gradio
+ray
+xai-sdk
+python-dotenv
+requests
+autocorrect

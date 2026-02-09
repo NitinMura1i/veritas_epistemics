@@ -1,3 +1,10 @@
 .env
 __pycache__/
 *.pyc
+
+# Generated article files
+article_*.md
+critique_*.md
+debate_*.md
+feedback_*.md
+synthetic_*.json
