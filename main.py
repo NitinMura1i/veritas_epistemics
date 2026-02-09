@@ -217,8 +217,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 "Article Generation",
                 "Multi-Agent Debate",
                 "Self-Critique",
-                "Synthetic Data",
-                "User Feedback"
+                "User Feedback",
+                "Synthetic Data"
             ],
             show_label=False,
             value="Article Generation",
@@ -690,15 +690,21 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 preview.textContent = data.latest_content;
             }
 
-            // Enable/disable restore button (need at least 2 versions to restore)
+            // Store the latest version number for comparison
+            window.latestVersionNum = (data.articles && data.articles.length > 0) ? data.articles[0].version : null;
+
+            // Enable/disable restore button (need at least 2 versions, and start disabled since we view latest by default)
             const restoreBtn = document.getElementById('restore-version-btn');
             if (restoreBtn) {
+                // Start disabled since we're viewing the latest version by default
                 if (data.articles && data.articles.length > 1) {
-                    restoreBtn.disabled = false;
-                    restoreBtn.style.opacity = '1';
-                    restoreBtn.style.cursor = 'pointer';
-                    restoreBtn.style.color = '#fff';
+                    // More than 1 version exists, but we're viewing latest so still disabled
+                    restoreBtn.disabled = true;
+                    restoreBtn.style.opacity = '0.5';
+                    restoreBtn.style.cursor = 'not-allowed';
+                    restoreBtn.style.color = '#555';
                 } else {
+                    // Only 1 version exists, definitely disabled
                     restoreBtn.disabled = true;
                     restoreBtn.style.opacity = '0.5';
                     restoreBtn.style.cursor = 'not-allowed';
@@ -729,6 +735,23 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                             item.classList.add('selected');
                         }
                     });
+                    // Enable/disable restore button based on whether this is the latest version
+                    const restoreBtn = document.getElementById('restore-version-btn');
+                    if (restoreBtn) {
+                        if (versionNum === window.latestVersionNum) {
+                            // Viewing latest version - disable restore
+                            restoreBtn.disabled = true;
+                            restoreBtn.style.opacity = '0.5';
+                            restoreBtn.style.cursor = 'not-allowed';
+                            restoreBtn.style.color = '#555';
+                        } else {
+                            // Viewing older version - enable restore
+                            restoreBtn.disabled = false;
+                            restoreBtn.style.opacity = '1';
+                            restoreBtn.style.cursor = 'pointer';
+                            restoreBtn.style.color = '#fff';
+                        }
+                    }
                 }
             };
 
