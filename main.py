@@ -208,7 +208,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     # CSS and JavaScript for UI styling
     gr.HTML(STYLES_AND_SCRIPTS)
 
-
     # Top control row: dropdown and input box
     with gr.Row(elem_classes=["top-control-row"]):
         # Epistemic tools dropdown
@@ -854,5 +853,5 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     )
 
 
-# Launch with no footer
+# Launch with no footer (show_api=False) = no Gradio branding, and share=True to get a public link for 72 hours
 demo.launch(show_api=False, share=True)
