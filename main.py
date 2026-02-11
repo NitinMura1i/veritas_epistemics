@@ -854,4 +854,4 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
 
 # Launch with no footer (show_api=False) = no Gradio branding, and share=True to get a public link for 72 hours
-demo.launch(show_api=False, share=True)
+demo.launch()
