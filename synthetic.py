@@ -87,7 +87,8 @@ if RAY_AVAILABLE:
 - Speculation presented as definitive fact"""
 
         # Generate the article
-        generator_chat = worker_client.chat.create(model="grok-4-1-fast-reasoning")
+        generator_chat = worker_client.chat.create(
+            model="grok-4-1-fast-reasoning")
         generator_chat.append(system(
             f"You are generating a synthetic training example for an epistemic quality classifier.\n\n"
             f"{quality_instruction}\n\n"
@@ -102,7 +103,8 @@ if RAY_AVAILABLE:
                 generated_article += chunk.content
 
         # Label the article
-        labeler_chat = worker_client.chat.create(model="grok-4-1-fast-reasoning")
+        labeler_chat = worker_client.chat.create(
+            model="grok-4-1-fast-reasoning")
         labeler_chat.append(system(
             "You are an epistemic quality labeler. Analyze the article and provide scores (0-10) for:\n"
             "- source_quality: How well claims are sourced and cited\n"
@@ -116,7 +118,8 @@ if RAY_AVAILABLE:
             "COMPLETENESS: [0-10]\n"
             "FLAWS: [comma-separated list of specific issues]"
         ))
-        labeler_chat.append(user(f"Label this article:\n\n{generated_article}"))
+        labeler_chat.append(
+            user(f"Label this article:\n\n{generated_article}"))
 
         label_response = ""
         for response, chunk in labeler_chat.stream():
@@ -133,7 +136,8 @@ if RAY_AVAILABLE:
         completeness = int(re.search(r'COMPLETENESS:\s*(\d+)', label_response).group(1)
                            ) if re.search(r'COMPLETENESS:\s*(\d+)', label_response) else 5
         flaws_match = re.search(r'FLAWS:\s*(.+)', label_response)
-        flaws = flaws_match.group(1).strip() if flaws_match else "none identified"
+        flaws = flaws_match.group(1).strip(
+        ) if flaws_match else "none identified"
 
         return {
             "id": example_id,
@@ -212,7 +216,7 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
 
     # Left panel: Generation log
     log = "🏭 SYNTHETIC DATA GENERATION\n"
-    log += "=" * 44 + "\n\n"
+    log += "=" * 42 + "\n\n"
     log += f"📊 Configuration:\n"
     log += f"- Target topic: {topic}\n"
     log += f"- Number of examples: {num_examples}\n"
@@ -227,10 +231,10 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
     synthetic_dataset = []
 
     # Center panel: Article preview (will update with each generation)
-    center_preview = "📝 GENERATED ARTICLES\n" + "=" * 44 + "\n\n"
+    center_preview = "📝 GENERATED ARTICLES\n" + "=" * 42 + "\n\n"
 
     # Right panel: Metadata accumulation
-    metadata_display = "📋 DATASET METADATA\n" + "=" * 44 + "\n\n"
+    metadata_display = "📋 DATASET METADATA\n" + "=" * 42 + "\n\n"
 
     try:
         # ================================================================
@@ -273,12 +277,12 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
             log += f"🚀 Launching {num_examples} parallel generation tasks...\n\n"
 
             # Show friendly messages in center and right panels while generating
-            center_preview = "📝 GENERATED ARTICLES\n" + "=" * 44 + "\n\n"
+            center_preview = "📝 GENERATED ARTICLES\n" + "=" * 42 + "\n\n"
             center_preview += "**Your synthetic data is being generated...**\n\n"
             center_preview += f"Generating {num_examples} examples in parallel.\n"
             center_preview += "This may take a moment. Results will appear here shortly.\n"
 
-            metadata_display = "📋 DATASET METADATA\n" + "=" * 44 + "\n\n"
+            metadata_display = "📋 DATASET METADATA\n" + "=" * 42 + "\n\n"
             metadata_display += "**Awaiting results...**\n\n"
             metadata_display += "Quality scores and flaw analysis\n"
             metadata_display += "will appear here once complete.\n"
@@ -303,14 +307,14 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
             log += f"✅ All {num_examples} examples generated successfully!\n\n"
 
             # Build final displays
-            center_preview = "📝 GENERATED ARTICLES\n" + "=" * 44 + "\n\n"
+            center_preview = "📝 GENERATED ARTICLES\n" + "=" * 42 + "\n\n"
             for entry in synthetic_dataset:
                 center_preview += f"**Example {entry['id']}/{num_examples}** (Quality: {entry['target_quality'].upper()})\n"
-                center_preview += "-" * 44 + "\n\n"
+                center_preview += "-" * 42 + "\n\n"
                 center_preview += entry['article'] + "\n\n"
-                center_preview += "=" * 44 + "\n\n"
+                center_preview += "=" * 42 + "\n\n"
 
-            metadata_display = "📋 DATASET METADATA\n" + "=" * 44 + "\n\n"
+            metadata_display = "📋 DATASET METADATA\n" + "=" * 42 + "\n\n"
             for entry in synthetic_dataset:
                 metadata_display += f"**Example {entry['id']}** - {entry['target_quality'].upper()}\n"
                 metadata_display += f"Source Quality: {entry['labels']['source_quality']}/10\n"
@@ -424,7 +428,8 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
                     f"Write a {word_range} word article about the given topic with the specified epistemic characteristics. "
                     f"Output ONLY the article text in markdown format. Include a brief Sources section if appropriate."
                 ))
-                generator_chat.append(user(f"Generate an article about: {topic}"))
+                generator_chat.append(
+                    user(f"Generate an article about: {topic}"))
 
                 # Generate article with streaming updates
                 generated_article = ""
@@ -433,23 +438,24 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
                         generated_article += chunk.content
 
                         # Rebuild center preview with streaming article
-                        temp_center_preview = "📝 GENERATED ARTICLES\n" + "=" * 44 + "\n\n"
+                        temp_center_preview = "📝 GENERATED ARTICLES\n" + "=" * 42 + "\n\n"
                         # Show all previously completed articles
                         for entry in synthetic_dataset:
                             temp_center_preview += f"**Example {entry['id']}/{num_examples}** (Quality: {entry['target_quality'].upper()})\n"
-                            temp_center_preview += "-" * 44 + "\n\n"
+                            temp_center_preview += "-" * 42 + "\n\n"
                             temp_center_preview += entry['article'] + "\n\n"
-                            temp_center_preview += "=" * 44 + "\n\n"
+                            temp_center_preview += "=" * 42 + "\n\n"
                         # Show currently streaming article
                         temp_center_preview += f"**Example {i+1}/{num_examples}** (Quality: {quality.upper()}) - GENERATING...\n"
-                        temp_center_preview += "-" * 44 + "\n\n"
+                        temp_center_preview += "-" * 42 + "\n\n"
                         temp_center_preview += generated_article + \
                             "▌"  # Add cursor to show it's streaming
 
                         yield temp_center_preview, log, metadata_display, None
 
                 # Label the article with epistemic scores
-                labeler_chat = client.chat.create(model="grok-4-1-fast-reasoning")
+                labeler_chat = client.chat.create(
+                    model="grok-4-1-fast-reasoning")
                 labeler_chat.append(system(
                     "You are an epistemic quality labeler. Analyze the article and provide scores (0-10) for:\n"
                     "- source_quality: How well claims are sourced and cited\n"
@@ -512,15 +518,15 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
                 synthetic_dataset.append(data_entry)
 
                 # Update center preview with all articles
-                center_preview = "📝 GENERATED ARTICLES\n" + "=" * 44 + "\n\n"
+                center_preview = "📝 GENERATED ARTICLES\n" + "=" * 42 + "\n\n"
                 for entry in synthetic_dataset:
                     center_preview += f"**Example {entry['id']}/{num_examples}** (Quality: {entry['target_quality'].upper()})\n"
-                    center_preview += "-" * 44 + "\n\n"
+                    center_preview += "-" * 42 + "\n\n"
                     center_preview += entry['article'] + "\n\n"
-                    center_preview += "=" * 44 + "\n\n"
+                    center_preview += "=" * 42 + "\n\n"
 
                 # Update metadata display
-                metadata_display = "📋 DATASET METADATA\n" + "=" * 44 + "\n\n"
+                metadata_display = "📋 DATASET METADATA\n" + "=" * 42 + "\n\n"
                 for entry in synthetic_dataset:
                     metadata_display += f"**Example {entry['id']}** - {entry['target_quality'].upper()}\n"
                     metadata_display += f"Source Quality: {entry['labels']['source_quality']}/10\n"
@@ -553,7 +559,7 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
                 f.write(json.dumps(entry) + '\n')
 
         # Final log update
-        log += "\n" + "=" * 44 + "\n"
+        log += "\n" + "=" * 42 + "\n"
         log += f"✅ Generation complete!\n\n"
         log += f"📁 Exported to: {filename}\n"
         log += f"📊 Total examples: {num_examples}\n"
@@ -564,7 +570,7 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
         log += "- Fine-tuning article generators\n"
 
         # Final metadata summary
-        metadata_display += "\n" + "=" * 44 + "\n"
+        metadata_display += "\n" + "=" * 42 + "\n"
         metadata_display += f"**📊 DATASET SUMMARY**\n\n"
         metadata_display += f"Total examples: {num_examples}\n"
         metadata_display += f"Topic: {topic}\n"

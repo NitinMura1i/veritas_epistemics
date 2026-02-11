@@ -33,17 +33,17 @@ def run_multi_agent_debate(current_article_clean: str, original_article: str):
 
     # Center panel: original article (will transition to revised at end)
     center_display = "📄 ORIGINAL ARTICLE\n"
-    center_display += "=" * 44 + "\n\n"
+    center_display += "=" * 42 + "\n\n"
     center_display += original_article
 
     # Left panel: debate transcript (progressive updates)
     debate_transcript = "🎭 DEBATE TRANSCRIPT\n"
-    debate_transcript += "=" * 44 + "\n\n"
+    debate_transcript += "=" * 42 + "\n\n"
     debate_transcript += "⏳ Initializing debate agents...\n\n"
 
     # Right panel: edit log placeholder
     edit_log_placeholder = "📝 EDIT LOG\n"
-    edit_log_placeholder += "=" * 44 + "\n\n"
+    edit_log_placeholder += "=" * 42 + "\n\n"
     edit_log_placeholder += "Changes will appear here after the debate concludes.\n\n"
     edit_log_placeholder += "The arbiter will synthesize the debate into a revised article, "
     edit_log_placeholder += "and this panel will show exactly what was changed."
@@ -52,9 +52,9 @@ def run_multi_agent_debate(current_article_clean: str, original_article: str):
 
     # Agent 1: Defender
     debate_transcript = "🎭 DEBATE TRANSCRIPT\n"
-    debate_transcript += "=" * 44 + "\n\n"
+    debate_transcript += "=" * 42 + "\n\n"
     debate_transcript += "🟢 DEFENDER AGENT\n"
-    debate_transcript += "-" * 44 + "\n"
+    debate_transcript += "-" * 42 + "\n"
     debate_transcript += "⏳ Analyzing article for strengths...\n\n"
     yield debate_transcript, center_display, edit_log_placeholder, None, None
 
@@ -72,7 +72,7 @@ def run_multi_agent_debate(current_article_clean: str, original_article: str):
         # Stream Defender response
         defender_response = ""
         debate_base = "🎭 DEBATE TRANSCRIPT\n" + "=" * \
-            44 + "\n\n🟢 DEFENDER AGENT\n" + "-" * 44 + "\n"
+            42 + "\n\n🟢 DEFENDER AGENT\n" + "-" * 42 + "\n"
 
         for response, chunk in defender_chat.stream():
             if chunk.content:
@@ -85,7 +85,7 @@ def run_multi_agent_debate(current_article_clean: str, original_article: str):
 
         # Agent 2: Challenger
         debate_transcript += "🔴 CHALLENGER AGENT\n"
-        debate_transcript += "-" * 44 + "\n"
+        debate_transcript += "-" * 42 + "\n"
         debate_transcript += "⏳ Analyzing article for weaknesses...\n\n"
         yield debate_transcript, center_display, edit_log_placeholder, None, None
 
@@ -116,7 +116,7 @@ def run_multi_agent_debate(current_article_clean: str, original_article: str):
 
         # Agent 3: Arbiter (produces revised article)
         debate_transcript += "⚖️ ARBITER AGENT\n"
-        debate_transcript += "-" * 44 + "\n"
+        debate_transcript += "-" * 42 + "\n"
         debate_transcript += "⏳ Synthesizing debate and producing revised article...\n\n"
         yield debate_transcript, center_display, edit_log_placeholder, None, None
 
@@ -144,11 +144,11 @@ Produce the final revised article."""))
 
         # Stream Arbiter's revised article to CENTER panel (replacing original)
         revised_article = ""
-        revised_header = "📝 REVISED ARTICLE\n" + "=" * 44 + "\n\n"
+        revised_header = "📝 REVISED ARTICLE\n" + "=" * 42 + "\n\n"
 
         # Show "generating" in edit log
         generating_edit_log = "📝 EDIT LOG\n"
-        generating_edit_log += "=" * 44 + "\n\n"
+        generating_edit_log += "=" * 42 + "\n\n"
         generating_edit_log += "Generating revised article...\n\n"
         generating_edit_log += "Edit log will be computed once revision is complete."
 
@@ -169,7 +169,7 @@ Produce the final revised article."""))
 
         # Build the article history entry
         final_article = f"📝 REVISED ARTICLE (Post-Debate)\n"
-        final_article += "=" * 44 + "\n\n"
+        final_article += "=" * 42 + "\n\n"
         final_article += revised_article
 
         # Save revised article to file for download

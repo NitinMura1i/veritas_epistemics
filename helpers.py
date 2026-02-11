@@ -97,7 +97,7 @@ def generate_edit_log(original: str, revised: str) -> str:
 
     # Build edit log
     edit_log = "📝 EDIT LOG\n"
-    edit_log += "=" * 44 + "\n\n"
+    edit_log += "=" * 42 + "\n\n"
 
     if changes:
         for orig, rev in changes:
@@ -106,7 +106,7 @@ def generate_edit_log(original: str, revised: str) -> str:
             edit_log += "                    ↓\n\n"
             edit_log += "                 (Revised)\n"
             edit_log += f"{truncate(rev)}\n\n"
-            edit_log += "-" * 44 + "\n\n"
+            edit_log += "-" * 42 + "\n\n"
 
     # Summary
     if changes:

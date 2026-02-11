@@ -27,9 +27,9 @@ def run_user_feedback(user_feedback: str, current_article_clean: str, current_gr
     """
     if not current_article_clean:
         error_msg = "⚠️ No article available. Please generate an article first."
-        center_display = "📝 CURRENT ARTICLE\n" + "=" * 44 + "\n\n" + \
+        center_display = "📝 CURRENT ARTICLE\n" + "=" * 42 + "\n\n" + \
             "No article available. Generate an article before providing feedback."
-        rejection_display = "❌ FEEDBACK REJECTED\n" + "=" * 44 + "\n\n" + \
+        rejection_display = "❌ FEEDBACK REJECTED\n" + "=" * 42 + "\n\n" + \
             "No article available to provide feedback on.\n\nGenerate an article first using Article Generation."
         return center_display, error_msg, rejection_display, None, None
 
@@ -38,14 +38,14 @@ def run_user_feedback(user_feedback: str, current_article_clean: str, current_gr
 
     # Center panel: current article (read-only reference)
     center_display = "📝 CURRENT ARTICLE\n"
-    center_display += "=" * 44 + "\n\n"
+    center_display += "=" * 42 + "\n\n"
     center_display += current_article_clean
 
     # Left panel: show processing message temporarily
     processing_msg = "⏳ Processing your feedback...\n\nValidating suggestions against source material..."
 
     # Right panel: placeholder during processing
-    right_placeholder = "📋 CHANGELOG\n" + "=" * 44 + \
+    right_placeholder = "📋 CHANGELOG\n" + "=" * 42 + \
         "\n\n⏳ Processing...\n\nChangelog will appear here."
 
     yield center_display, processing_msg, right_placeholder, None, None
@@ -89,7 +89,7 @@ def run_user_feedback(user_feedback: str, current_article_clean: str, current_gr
         if not is_valid:
             # Feedback rejected - keep user's feedback in left panel (editable), put rejection in right panel
             rejection_display = "❌ FEEDBACK REJECTED\n"
-            rejection_display += "=" * 44 + "\n\n"
+            rejection_display += "=" * 42 + "\n\n"
             rejection_display += f"{validation_response}\n\n"
             rejection_display += "---\n\n"
             rejection_display += "💡 Tips for good feedback:\n\n"
@@ -155,7 +155,7 @@ def run_user_feedback(user_feedback: str, current_article_clean: str, current_gr
 
         # Stream revised article to CENTER panel
         revised_article = ""
-        revision_header = "📝 CURRENT ARTICLE\n" + "=" * 44 + "\n\n"
+        revision_header = "📝 CURRENT ARTICLE\n" + "=" * 42 + "\n\n"
 
         for response, chunk in revision_chat.stream():
             if chunk.content:
@@ -187,7 +187,7 @@ def run_user_feedback(user_feedback: str, current_article_clean: str, current_gr
 
         # Stream changelog to RIGHT panel
         changelog = ""
-        changelog_header = "📋 CHANGELOG\n" + "=" * 44 + "\n\n"
+        changelog_header = "📋 CHANGELOG\n" + "=" * 42 + "\n\n"
 
         for response, chunk in changelog_chat.stream():
             if chunk.content:
@@ -198,7 +198,7 @@ def run_user_feedback(user_feedback: str, current_article_clean: str, current_gr
 
         # Build the article history entry
         final_article = f"📝 REVISED ARTICLE (User Feedback)\n"
-        final_article += "=" * 44 + "\n\n"
+        final_article += "=" * 42 + "\n\n"
         final_article += f"__Revised based on user feedback__\n\n---\n\n{revised_article}"
 
         # Save revised article to file for download

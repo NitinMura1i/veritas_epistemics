@@ -33,17 +33,17 @@ def run_self_critique(current_article_clean: str, original_article: str):
 
     # Center panel: original article (will transition to refined at end)
     center_display = "📄 ORIGINAL ARTICLE\n"
-    center_display += "=" * 44 + "\n\n"
+    center_display += "=" * 42 + "\n\n"
     center_display += original_article
 
     # Left panel: critique analysis (streaming)
     critique_analysis = "💭 SELF-CRITIQUE ANALYSIS\n"
-    critique_analysis += "=" * 44 + "\n\n"
+    critique_analysis += "=" * 42 + "\n\n"
     critique_analysis += "🔎 Analyzing article for epistemic issues...\n\n"
 
     # Right panel: edit log placeholder
     edit_log_placeholder = "📝 EDIT LOG\n"
-    edit_log_placeholder += "=" * 44 + "\n\n"
+    edit_log_placeholder += "=" * 42 + "\n\n"
     edit_log_placeholder += "Changes will appear here after critique completes.\n\n"
     edit_log_placeholder += "The refined article will be compared to the original, "
     edit_log_placeholder += "and this panel will show exactly what was changed."
@@ -81,13 +81,13 @@ def run_self_critique(current_article_clean: str, original_article: str):
             if chunk.content:
                 full_critique += chunk.content
                 critique_analysis_display = "💭 SELF-CRITIQUE ANALYSIS\n"
-                critique_analysis_display += "=" * 44 + "\n\n"
+                critique_analysis_display += "=" * 42 + "\n\n"
                 critique_analysis_display += full_critique
                 yield critique_analysis_display, center_display, edit_log_placeholder, None, None
 
         # Step 2: Generate refined article based on critique
         critique_analysis_display = "💭 SELF-CRITIQUE ANALYSIS\n"
-        critique_analysis_display += "=" * 44 + "\n\n"
+        critique_analysis_display += "=" * 42 + "\n\n"
         critique_analysis_display += full_critique + "\n\n"
         critique_analysis_display += "✓ Analysis complete. Generating refined article...\n"
         yield critique_analysis_display, center_display, edit_log_placeholder, None, None
@@ -110,12 +110,12 @@ def run_self_critique(current_article_clean: str, original_article: str):
 
         # Show generating status in edit log
         generating_edit_log = "📝 EDIT LOG\n"
-        generating_edit_log += "=" * 44 + "\n\n"
+        generating_edit_log += "=" * 42 + "\n\n"
         generating_edit_log += "Generating refined article...\n\n"
         generating_edit_log += "Edit log will be computed once refinement is complete."
 
         # Stream refined article to CENTER panel (replacing original)
-        refined_header = "📝 REFINED ARTICLE\n" + "=" * 44 + "\n\n"
+        refined_header = "📝 REFINED ARTICLE\n" + "=" * 42 + "\n\n"
         refined_article = ""
         for response, chunk in refinement_chat.stream():
             if chunk.content:
@@ -128,7 +128,7 @@ def run_self_critique(current_article_clean: str, original_article: str):
 
         # Build the article history entry
         final_article = f"📝 REFINED ARTICLE (Post-Critique)\n"
-        final_article += "=" * 44 + "\n\n"
+        final_article += "=" * 42 + "\n\n"
         final_article += f"__Epistemically refined through self-critique__\n\n---\n\n{refined_article}"
 
         # Save refined article to file for download
@@ -151,7 +151,7 @@ def run_self_critique(current_article_clean: str, original_article: str):
 
         # Final yield with complete versions
         final_critique_display = "💭 SELF-CRITIQUE ANALYSIS\n"
-        final_critique_display += "=" * 44 + "\n\n"
+        final_critique_display += "=" * 42 + "\n\n"
         final_critique_display += full_critique + "\n\n"
         final_critique_display += "✅ Critique complete! Refined article generated."
 
