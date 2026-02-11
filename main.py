@@ -318,7 +318,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Normal left panel - Process log and status (visible for all tools EXCEPT Synthetic Data)
         left_panel = gr.Textbox(
-            value="🔍 PROCESS LOG\n" + "=" * 42 +
+            value="🔍 PROCESS LOG\n" + "=" * 38 +
             "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!",
             lines=30,
             interactive=False,
@@ -331,7 +331,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Central article (always visible and centered!)
         article_display = gr.Textbox(
-            value="📝 YOUR ARTICLE\n" + "=" * 42 +
+            value="📝 YOUR ARTICLE\n" + "=" * 38 +
             "\n\nYour generated article will appear here.\n\nKnowledge incoming!",
             lines=30,
             interactive=False,
@@ -343,7 +343,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Right panel - Source material (Web Sources)
         right_panel = gr.Textbox(
-            value="📚 SOURCE MATERIAL\n" + "=" * 42 +
+            value="📚 SOURCE MATERIAL\n" + "=" * 38 +
             "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation.",
             lines=30,
             interactive=False,
@@ -416,41 +416,41 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
 
         # Set placeholder content for panels based on selected tool
         if selected_tool == "Article Generation":
-            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + \
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 38 + \
                 "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!"
-            center_placeholder = "📝 YOUR ARTICLE\n" + "=" * 42 + \
+            center_placeholder = "📝 YOUR ARTICLE\n" + "=" * 38 + \
                 "\n\nYour generated article will appear here.\n\nKnowledge incoming!"
-            right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 42 + \
+            right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 38 + \
                 "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation."
 
         elif selected_tool == "Self-Critique":
-            left_placeholder = "💭 SELF-CRITIQUE ANALYSIS\n" + "=" * 42 + \
+            left_placeholder = "💭 SELF-CRITIQUE ANALYSIS\n" + "=" * 38 + \
                 "\n\nThis panel will show:\n• Epistemic quality assessment\n• Identification of issues\n• Suggestions for improvement\n\nClick 'Critique Article' to begin!"
 
             # If article exists, show it with the "ORIGINAL ARTICLE" header
             if current_article_clean:
                 center_placeholder = "📝 ORIGINAL ARTICLE\n" + \
-                    "=" * 42 + "\n\n" + current_article_clean
+                    "=" * 38 + "\n\n" + current_article_clean
             else:
-                center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 42 + \
+                center_placeholder = "📝 ORIGINAL ARTICLE\n" + "=" * 38 + \
                     "\n\nYour article will appear here.\n\nAfter the critique, this will show the revised version."
 
-            right_placeholder = "📝 EDIT LOG\n" + "=" * 42 + \
+            right_placeholder = "📝 EDIT LOG\n" + "=" * 38 + \
                 "\n\nThis panel will show what changed:\n• Substitutions\n• Additions\n• Deletions\n\nEdit log appears after critique completes."
 
         elif selected_tool == "Multi-Agent Debate":
-            left_placeholder = "🎭 DEBATE TRANSCRIPT\n" + "=" * 42 + \
+            left_placeholder = "🎭 DEBATE TRANSCRIPT\n" + "=" * 38 + \
                 "\n\nThis panel will show the debate between:\n• Defender: Argues for strengths\n• Challenger: Identifies weaknesses\n• Arbiter: Synthesizes improvements\n\nClick 'Start Debate' to begin!"
 
             # If article exists, show it with the "ORIGINAL ARTICLE" header
             if current_article_clean:
                 center_placeholder = "📄 ORIGINAL ARTICLE\n" + \
-                    "=" * 42 + "\n\n" + current_article_clean
+                    "=" * 38 + "\n\n" + current_article_clean
             else:
-                center_placeholder = "📄 ORIGINAL ARTICLE\n" + "=" * 42 + \
+                center_placeholder = "📄 ORIGINAL ARTICLE\n" + "=" * 38 + \
                     "\n\nYour article will appear here.\n\nAfter the debate, this will show the revised version."
 
-            right_placeholder = "📝 EDIT LOG\n" + "=" * 42 + \
+            right_placeholder = "📝 EDIT LOG\n" + "=" * 38 + \
                 "\n\nThis panel will show what changed:\n• Substitutions\n• Additions\n• Deletions\n\nEdit log appears after debate completes."
 
         elif selected_tool == "User Feedback":
@@ -461,30 +461,30 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             # If article exists, show it in center
             if current_article_clean:
                 center_placeholder = "📝 CURRENT ARTICLE\n" + \
-                    "=" * 42 + "\n\n" + current_article_clean
+                    "=" * 38 + "\n\n" + current_article_clean
             else:
-                center_placeholder = "📝 CURRENT ARTICLE\n" + "=" * 42 + \
+                center_placeholder = "📝 CURRENT ARTICLE\n" + "=" * 38 + \
                     "\n\nYour article will appear here.\n\nAfter the feedback, this will show the revised version."
 
-            right_placeholder = "📋 CHANGELOG\n" + "=" * 42 + "\n\nThis panel will display the changelog after processing your feedback:\n\n✅ ACCEPTED changes\n   - What was incorporated and why\n\n⚠️ PARTIALLY ACCEPTED changes\n   - What was modified and reasoning\n\n❌ REJECTED changes\n   - Why suggestions weren't incorporated\n\nThe revised article will appear in the center panel.\n\nEnter your feedback in the left panel and click 'Collect Feedback'."
+            right_placeholder = "📋 CHANGELOG\n" + "=" * 38 + "\n\nThis panel will display the changelog after processing your feedback:\n\n✅ ACCEPTED changes\n   - What was incorporated and why\n\n⚠️ PARTIALLY ACCEPTED changes\n   - What was modified and reasoning\n\n❌ REJECTED changes\n   - Why suggestions weren't incorporated\n\nThe revised article will appear in the center panel.\n\nEnter your feedback in the left panel and click 'Collect Feedback'."
 
         elif selected_tool == "Synthetic Data":
             # Synthetic Data Generation placeholders
-            left_placeholder = "🏭 GENERATION LOG\n" + "=" * 42 + "\n\nThis panel displays the synthetic data generation process:\n\n- Configuration details\n- Generation progress for each example\n- Quality tier assignments\n- Epistemic flaw injection\n- Export status and file location\n\nEnter a topic and click 'Generate Data' to create labeled training examples!"
+            left_placeholder = "🏭 GENERATION LOG\n" + "=" * 38 + "\n\nThis panel displays the synthetic data generation process:\n\n- Configuration details\n- Generation progress for each example\n- Quality tier assignments\n- Epistemic flaw injection\n- Export status and file location\n\nEnter a topic and click 'Generate Data' to create labeled training examples!"
 
-            center_placeholder = "📝 ARTICLE PREVIEW\n" + "=" * 42 + "\n\nThis panel will display generated articles as they are created:\n\n- Each article with its target quality level\n- Controlled epistemic characteristics\n- Varied certainty language patterns\n- Different sourcing qualities\n\nGenerated articles will appear here during the process."
+            center_placeholder = "📝 ARTICLE PREVIEW\n" + "=" * 38 + "\n\nThis panel will display generated articles as they are created:\n\n- Each article with its target quality level\n- Controlled epistemic characteristics\n- Varied certainty language patterns\n- Different sourcing qualities\n\nGenerated articles will appear here during the process."
 
-            right_placeholder = "📋 METADATA & LABELS\n" + "=" * 42 + \
+            right_placeholder = "📋 METADATA & LABELS\n" + "=" * 38 + \
                 "\n\nThis panel displays structured metadata for each generated example:\n\n- Epistemic quality scores (0-10)\n- Identified flaws and issues\n- Target quality tier\n- Dataset summary statistics\n- Export file information\n\nLabeled data suitable for training classifiers will appear here."
 
         else:
             # Default placeholders for other tools
-            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + \
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 38 + \
                 "\n\nProcess information will appear here."
             left_panel_placeholder = None  # No placeholder for other tools
             center_placeholder = "📝 YOUR ARTICLE\n" + "=" * \
-                42 + "\n\nYour article content will appear here."
-            right_placeholder = "📚 OUTPUT\n" + "=" * 42 + "\n\nResults will appear here."
+                38 + "\n\nYour article content will appear here."
+            right_placeholder = "📚 OUTPUT\n" + "=" * 38 + "\n\nResults will appear here."
 
         # Determine if left panel should be interactive
         left_interactive = (selected_tool == "User Feedback")
@@ -813,9 +813,9 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             article_history.append(history_entry)
 
             # Return placeholder values for all three panels
-            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 42 + \
+            left_placeholder = "🔍 PROCESS LOG\n" + "=" * 38 + \
                 "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!"
-            right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 42 + \
+            right_placeholder = "📚 SOURCE MATERIAL\n" + "=" * 38 + \
                 "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation."
 
             return left_placeholder, restored_display, right_placeholder
