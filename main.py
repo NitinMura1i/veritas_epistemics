@@ -335,7 +335,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             "\n\nYour generated article will appear here.\n\nKnowledge incoming!",
             lines=30,
             interactive=False,
-            show_copy_button=False,
+            # show_copy_button=False,
             container=True,
             elem_classes=["side-panel", "central-article"],
             show_label=False
@@ -347,7 +347,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             "\n\nThis panel will show sources like:\n• Web articles\n• Reference pages\n\nSources appear after generation.",
             lines=30,
             interactive=False,
-            show_copy_button=False,
+            # show_copy_button=False,
             show_label=False,
             container=True,
             elem_classes=["side-panel", "right-panel"],
