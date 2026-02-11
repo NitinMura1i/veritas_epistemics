@@ -4,11 +4,11 @@
 import os
 import logging
 import warnings
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
 from xai_sdk import Client
 
-load_dotenv()
+# load_dotenv()
 
 # Try to import and initialize Ray (optional - for synthetic data parallelization)
 RAY_AVAILABLE = False
