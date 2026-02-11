@@ -39,6 +39,7 @@ except ImportError:
 # API key and client
 api_key = os.getenv("XAI_API_KEY")
 if api_key is None:
-    raise ValueError("XAI_API_KEY not found in .env file!")
+    print("API key missing - using placeholder for startup")
+    api_key = "placeholder"  # dummy so app starts
 
 client = Client(api_key=api_key, timeout=3600)
