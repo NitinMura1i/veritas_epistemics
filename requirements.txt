@@ -3,3 +3,6 @@ xai-sdk
 python-dotenv
 requests
 autocorrect
+wikipedia-api
+python-dotenv
+ray
