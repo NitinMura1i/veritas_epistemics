@@ -1,49 +1,54 @@
 # synthetic.py
-# Synthetic data generation with Ray parallel processing
+# Synthetic data generation with optional Ray parallel processing
 
 import os
 import re
 import json
 import datetime
-import ray
 from xai_sdk import Client
 from xai_sdk.chat import user, system
 
-from config import api_key, client
+from config import api_key, client, RAY_AVAILABLE
+
+# Conditionally import Ray if available
+if RAY_AVAILABLE:
+    import ray
 
 
 # ============================================================================
 # RAY PARALLEL PROCESSING FOR SYNTHETIC DATA GENERATION
 # ============================================================================
 
-@ray.remote
-def generate_single_example(api_key: str, topic: str, example_id: int, quality: str, target_flaw: str, word_range: str):
-    """
-    Ray remote function to generate and label a single synthetic example.
-    Runs in parallel with other examples for faster batch generation.
+# Only define the Ray remote function if Ray is available
+if RAY_AVAILABLE:
+    @ray.remote
+    def generate_single_example(api_key: str, topic: str, example_id: int, quality: str, target_flaw: str, word_range: str):
+        """
+        Ray remote function to generate and label a single synthetic example.
+        Runs in parallel with other examples for faster batch generation.
 
-    Args:
-        api_key: xAI API key (needed because Ray runs in separate process)
-        topic: The topic to generate an article about
-        example_id: The ID number for this example
-        quality: Target quality tier (excellent, good, fair, poor, terrible)
-        target_flaw: The type of epistemic flaw to include
-        word_range: Word count range for the article
+        Args:
+            api_key: xAI API key (needed because Ray runs in separate process)
+            topic: The topic to generate an article about
+            example_id: The ID number for this example
+            quality: Target quality tier (excellent, good, fair, poor, terrible)
+            target_flaw: The type of epistemic flaw to include
+            word_range: Word count range for the article
 
-    Returns:
-        dict: Generated article with labels and metadata
-    """
-    import datetime
-    import re
-    from xai_sdk import Client
-    from xai_sdk.chat import user, system
+        Returns:
+            dict: Generated article with labels and metadata
+        """
+        import datetime
+        import re
+        from xai_sdk import Client
+        from xai_sdk.chat import user, system
 
-    # Create client inside Ray worker (can't share client across processes)
-    worker_client = Client(api_key=api_key, timeout=3600)
+        # Create client inside Ray worker (can't share client across processes)
+        worker_client = Client(api_key=api_key, timeout=3600)
 
-    # Build quality instruction based on target quality
-    if quality == "excellent":
-        quality_instruction = """Generate an epistemically EXCELLENT article (should score 9-10 on all dimensions):
+        # Build quality instruction based on target quality
+        if quality == "excellent":
+            quality_instruction = """Generate an epistemically EXCELLENT article (should score 9-10 on all dimensions):
 - Use precise hedging language ("suggests", "indicates", "may", "appears to") for uncertain claims
 - Include specific citations with sources for ALL major claims (e.g., "According to [Source, Year]...")
 - Present multiple perspectives on any debatable points
@@ -51,100 +56,100 @@ def generate_single_example(api_key: str, topic: str, example_id: int, quality: 
 - Include caveats about data limitations or methodological constraints
 - Use measured, qualified language throughout - no absolute statements without ironclad evidence
 - Include a Sources/References section with specific attributions"""
-    elif quality == "good":
-        quality_instruction = """Generate a GOOD quality article (target 6-8 scores):
+        elif quality == "good":
+            quality_instruction = """Generate a GOOD quality article (target 6-8 scores):
 - Include SPECIFIC citations for most claims (e.g., "According to [Source, Year]...")
 - Use appropriate hedging language for most statements ("suggests", "indicates", "research shows")
 - Allow only 1-2 minor lapses: one claim without citation OR one slightly promotional phrase
 - Maintain neutral, informative tone overall
 - Present facts objectively without one-sided framing
 - Include a proper Sources section with multiple references"""
-    elif quality == "fair":
-        quality_instruction = """Generate a FAIR quality article (target 4-6 scores):
+        elif quality == "fair":
+            quality_instruction = """Generate a FAIR quality article (target 4-6 scores):
 - Include SOME specific citations, but leave several significant claims unsourced
 - Mix hedging with definitive statements
 - Attempt balance but lean slightly positive/promotional
 - Include basic sourcing attempts even if vague
 - Should feel like a decent Wikipedia article with noticeable gaps"""
-    elif quality == "poor":
-        quality_instruction = """Generate an article with significant epistemic problems:
+        elif quality == "poor":
+            quality_instruction = """Generate an article with significant epistemic problems:
 - Many claims lack sources or citations
 - Overconfident language throughout ("X is", "Y proves", etc.)
 - Missing important qualifiers and hedges
 - One-sided framing on debatable topics
 - Presents speculation as fact in multiple places"""
-    else:  # terrible
-        quality_instruction = """Generate an article with severe epistemic failures:
+        else:  # terrible
+            quality_instruction = """Generate an article with severe epistemic failures:
 - Almost no citations or sources provided
 - Extreme overconfidence and absolutist language
 - No hedging or uncertainty acknowledgment
 - Heavily biased framing
 - Speculation presented as definitive fact"""
 
-    # Generate the article
-    generator_chat = worker_client.chat.create(model="grok-4-1-fast-reasoning")
-    generator_chat.append(system(
-        f"You are generating a synthetic training example for an epistemic quality classifier.\n\n"
-        f"{quality_instruction}\n\n"
-        f"Write a {word_range} word article about the given topic with the specified epistemic characteristics. "
-        f"Output ONLY the article text in markdown format. Include a brief Sources section if appropriate."
-    ))
-    generator_chat.append(user(f"Generate an article about: {topic}"))
+        # Generate the article
+        generator_chat = worker_client.chat.create(model="grok-4-1-fast-reasoning")
+        generator_chat.append(system(
+            f"You are generating a synthetic training example for an epistemic quality classifier.\n\n"
+            f"{quality_instruction}\n\n"
+            f"Write a {word_range} word article about the given topic with the specified epistemic characteristics. "
+            f"Output ONLY the article text in markdown format. Include a brief Sources section if appropriate."
+        ))
+        generator_chat.append(user(f"Generate an article about: {topic}"))
 
-    generated_article = ""
-    for response, chunk in generator_chat.stream():
-        if chunk.content:
-            generated_article += chunk.content
+        generated_article = ""
+        for response, chunk in generator_chat.stream():
+            if chunk.content:
+                generated_article += chunk.content
 
-    # Label the article
-    labeler_chat = worker_client.chat.create(model="grok-4-1-fast-reasoning")
-    labeler_chat.append(system(
-        "You are an epistemic quality labeler. Analyze the article and provide scores (0-10) for:\n"
-        "- source_quality: How well claims are sourced and cited\n"
-        "- certainty_appropriateness: Whether certainty language matches evidence strength\n"
-        "- bias_level: How balanced vs biased the framing is (10 = very balanced, 0 = very biased)\n"
-        "- completeness: Whether important caveats and limitations are mentioned\n\n"
-        "Format your response as:\n"
-        "SOURCE_QUALITY: [0-10]\n"
-        "CERTAINTY: [0-10]\n"
-        "BIAS: [0-10]\n"
-        "COMPLETENESS: [0-10]\n"
-        "FLAWS: [comma-separated list of specific issues]"
-    ))
-    labeler_chat.append(user(f"Label this article:\n\n{generated_article}"))
+        # Label the article
+        labeler_chat = worker_client.chat.create(model="grok-4-1-fast-reasoning")
+        labeler_chat.append(system(
+            "You are an epistemic quality labeler. Analyze the article and provide scores (0-10) for:\n"
+            "- source_quality: How well claims are sourced and cited\n"
+            "- certainty_appropriateness: Whether certainty language matches evidence strength\n"
+            "- bias_level: How balanced vs biased the framing is (10 = very balanced, 0 = very biased)\n"
+            "- completeness: Whether important caveats and limitations are mentioned\n\n"
+            "Format your response as:\n"
+            "SOURCE_QUALITY: [0-10]\n"
+            "CERTAINTY: [0-10]\n"
+            "BIAS: [0-10]\n"
+            "COMPLETENESS: [0-10]\n"
+            "FLAWS: [comma-separated list of specific issues]"
+        ))
+        labeler_chat.append(user(f"Label this article:\n\n{generated_article}"))
 
-    label_response = ""
-    for response, chunk in labeler_chat.stream():
-        if chunk.content:
-            label_response += chunk.content
+        label_response = ""
+        for response, chunk in labeler_chat.stream():
+            if chunk.content:
+                label_response += chunk.content
 
-    # Parse labels
-    source_quality = int(re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response).group(
-        1)) if re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response) else 5
-    certainty = int(re.search(r'CERTAINTY:\s*(\d+)', label_response).group(1)
-                    ) if re.search(r'CERTAINTY:\s*(\d+)', label_response) else 5
-    bias = int(re.search(r'BIAS:\s*(\d+)', label_response).group(1)
-               ) if re.search(r'BIAS:\s*(\d+)', label_response) else 5
-    completeness = int(re.search(r'COMPLETENESS:\s*(\d+)', label_response).group(1)
-                       ) if re.search(r'COMPLETENESS:\s*(\d+)', label_response) else 5
-    flaws_match = re.search(r'FLAWS:\s*(.+)', label_response)
-    flaws = flaws_match.group(1).strip() if flaws_match else "none identified"
+        # Parse labels
+        source_quality = int(re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response).group(
+            1)) if re.search(r'SOURCE_QUALITY:\s*(\d+)', label_response) else 5
+        certainty = int(re.search(r'CERTAINTY:\s*(\d+)', label_response).group(1)
+                        ) if re.search(r'CERTAINTY:\s*(\d+)', label_response) else 5
+        bias = int(re.search(r'BIAS:\s*(\d+)', label_response).group(1)
+                   ) if re.search(r'BIAS:\s*(\d+)', label_response) else 5
+        completeness = int(re.search(r'COMPLETENESS:\s*(\d+)', label_response).group(1)
+                           ) if re.search(r'COMPLETENESS:\s*(\d+)', label_response) else 5
+        flaws_match = re.search(r'FLAWS:\s*(.+)', label_response)
+        flaws = flaws_match.group(1).strip() if flaws_match else "none identified"
 
-    return {
-        "id": example_id,
-        "topic": topic,
-        "article": generated_article,
-        "target_quality": quality,
-        "target_flaw": target_flaw,
-        "labels": {
-            "source_quality": source_quality,
-            "certainty_appropriateness": certainty,
-            "bias_balance": bias,
-            "completeness": completeness
-        },
-        "identified_flaws": flaws,
-        "generated_at": datetime.datetime.now().isoformat()
-    }
+        return {
+            "id": example_id,
+            "topic": topic,
+            "article": generated_article,
+            "target_quality": quality,
+            "target_flaw": target_flaw,
+            "labels": {
+                "source_quality": source_quality,
+                "certainty_appropriateness": certainty,
+                "bias_balance": bias,
+                "completeness": completeness
+            },
+            "identified_flaws": flaws,
+            "generated_at": datetime.datetime.now().isoformat()
+        }
 
 
 def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
@@ -229,10 +234,10 @@ def run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, 
 
     try:
         # ================================================================
-        # PARALLEL PROCESSING WITH RAY (for 3+ examples)
-        # Ray is initialized at app startup for cleaner operation
+        # PARALLEL PROCESSING WITH RAY (for 3+ examples, when Ray is available)
+        # Falls back to sequential processing if Ray is not installed
         # ================================================================
-        if num_examples >= 3:
+        if RAY_AVAILABLE and num_examples >= 3:
             log += f"⚡ Using parallel processing for {num_examples} examples...\n\n"
             yield center_preview, log, metadata_display, None
 
