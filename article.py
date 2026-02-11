@@ -125,15 +125,15 @@ def generate_initial_article(topic: str):
     """
     # Status in left panel
     status_log = "🔍 PROCESS LOG\n"
-    status_log += "=" * 44 + "\n\n"
+    status_log += "=" * 42 + "\n\n"
     status_log += "🚀 Starting article generation...\n\n"
 
     # Show loading message in center panel
-    article_placeholder = "📝 YOUR ARTICLE\n" + "=" * 44 + \
+    article_placeholder = "📝 YOUR ARTICLE\n" + "=" * 42 + \
         "\n\nYour generated article will appear shortly..."
 
     # Show loading message in right panel
-    loading_message = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
+    loading_message = "📚 SOURCE MATERIAL\n" + "=" * 42 + \
         "\n\nSearching for sources...\n\nSources will appear here when article generation is complete."
 
     yield article_placeholder, status_log, loading_message, None, None
@@ -187,7 +187,7 @@ def generate_initial_article(topic: str):
     if use_wikipedia and wiki_data:
         # Set up source display
         streaming_sources_display = "📚 SOURCE MATERIAL\n"
-        streaming_sources_display += "=" * 44 + "\n\n"
+        streaming_sources_display += "=" * 42 + "\n\n"
         streaming_sources_display += f"**{wiki_data['title']}**\n\n"
         streaming_sources_display += f"Source: {wiki_data['url']}\n\n"
         streaming_sources_display += "---\n\n"
@@ -235,14 +235,14 @@ Format the article in clean markdown."""
                     article_content += chunk.content
 
                     streaming_article = "📝 YOUR ARTICLE\n"
-                    streaming_article += "=" * 44 + "\n\n"
+                    streaming_article += "=" * 42 + "\n\n"
                     streaming_article += article_content
 
                     yield streaming_article, status_log, streaming_sources_display, None, None
 
         except Exception as e:
             status_log += f"❌ Error generating article: {str(e)}\n\n"
-            error_article = "📝 YOUR ARTICLE\n" + "=" * 44 + \
+            error_article = "📝 YOUR ARTICLE\n" + "=" * 42 + \
                 "\n\n❌ Error generating article. Please try again."
             yield error_article, status_log, streaming_sources_display, None, None
             return
@@ -314,7 +314,7 @@ Format the article in clean markdown."""
 
                     article_content += chunk.content
                     streaming_article = "📝 YOUR ARTICLE\n"
-                    streaming_article += "=" * 44 + "\n\n"
+                    streaming_article += "=" * 42 + "\n\n"
                     streaming_article += article_content
                     yield streaming_article, status_log, loading_message, None, None
 
@@ -340,7 +340,7 @@ Format the article in clean markdown."""
                 source_data = fetch_content_from_url(url)
 
                 streaming_sources_display = "📚 WEB SOURCE\n"
-                streaming_sources_display += "=" * 44 + "\n\n"
+                streaming_sources_display += "=" * 42 + "\n\n"
 
                 if source_data and source_data.get("content"):
                     content = source_data["content"]
@@ -350,7 +350,7 @@ Format the article in clean markdown."""
                         truncated_content += "..."
 
                     streaming_sources_display += f"Source: {url}\n\n"
-                    streaming_sources_display += "-" * 44 + "\n\n"
+                    streaming_sources_display += "-" * 42 + "\n\n"
                     streaming_sources_display += truncated_content
 
                     source_notes.append(f"[{source_data['title']}]({url})")
@@ -370,19 +370,19 @@ Format the article in clean markdown."""
                     source_context = f"Web Source: {url}"
             else:
                 status_log += "⚠️ No citations found in response\n\n"
-                streaming_sources_display = "📚 SOURCE MATERIAL\n" + "=" * 44 + \
+                streaming_sources_display = "📚 SOURCE MATERIAL\n" + "=" * 42 + \
                     "\n\n⚠️ No sources found.\n\nArticle generated from general knowledge."
 
         except Exception as e:
             status_log += f"❌ Web search failed: {str(e)}\n\n"
-            error_article = "📝 YOUR ARTICLE\n" + "=" * 44 + \
+            error_article = "📝 YOUR ARTICLE\n" + "=" * 42 + \
                 "\n\n❌ Error generating article. Please try again."
             yield error_article, status_log, loading_message, None, None
             return
 
     # Add header at the top
     final_article = "📝 YOUR ARTICLE\n"
-    final_article += "=" * 44 + "\n\n"
+    final_article += "=" * 42 + "\n\n"
     final_article += article_content
 
     # Update status log to show completion
