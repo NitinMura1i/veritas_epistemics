@@ -193,23 +193,9 @@ dark_theme = gr.themes.Default(
 
 css = """
 .gradio-container {
-    max-width: 900px;
-    margin: 0 auto;
+    max-width: 900px !important;
+    margin: 0 auto !important;
     padding: 10px;
-}
-
-@media (max-width: 600px) {
-    .gradio-container {
-        font-size: 0.95em;
-        padding: 8px;
-    }
-    .button, button {
-        width: 100%;
-        margin-bottom: 10px;
-    }
-    input, textarea {
-        font-size: 1em;
-    }
 }
 """
 
