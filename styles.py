@@ -685,7 +685,9 @@ STYLES_AND_SCRIPTS = """
             color: #6366f1 !important;
         }
 
-        #download-btn {
+        #download-btn,
+        #download-btn button,
+        #download-btn a {
             background-color: #0f0f0f !important;
             border: 1.5px solid #e5e7eb !important;
             color: #e5e7eb !important;
@@ -696,24 +698,39 @@ STYLES_AND_SCRIPTS = """
             height: 38px !important;
             cursor: pointer !important;
             transition: all 0.3s ease !important;
+            text-decoration: none !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
 
-        #download-btn:hover {
+        /* Hide any default download icon from DownloadButton */
+        #download-btn svg {
+            display: none !important;
+        }
+
+        #download-btn:hover,
+        #download-btn button:hover,
+        #download-btn a:hover {
             background-color: #1a1a1a !important;
             border-color: #6366f1 !important;
             color: #6366f1 !important;
         }
 
         #download-btn[disabled],
-        #download-btn.disabled {
+        #download-btn.disabled,
+        #download-btn button:disabled,
+        #download-btn a.disabled {
             cursor: not-allowed !important;
             opacity: 0.4 !important;
             border-color: #444444 !important;
             color: #666666 !important;
+            pointer-events: none !important;
         }
 
         #download-btn[disabled]:hover,
-        #download-btn.disabled:hover {
+        #download-btn.disabled:hover,
+        #download-btn button:disabled:hover {
             background-color: #0f0f0f !important;
             border-color: #444444 !important;
             color: #666666 !important;

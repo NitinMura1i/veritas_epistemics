@@ -247,8 +247,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         )
 
         # Download button
-        download_btn = gr.Button(
-            value="🡳",
+        download_btn = gr.DownloadButton(
+            label="🡳",
             variant="secondary",
             scale=0,
             min_width=55,
@@ -358,12 +358,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
     version_state = gr.HTML(value="", visible=False,
                             elem_id="version-state-holder")
 
-    # State to store download file path
-    download_file_state = gr.State(value=None)
-
-    # Hidden File component for downloads
-    download_file = gr.File(visible=False, interactive=False)
-
     # Hidden components for restore version functionality (visible but hidden via CSS for Gradio compatibility)
     restore_version_input = gr.Textbox(
         value="", visible=True, elem_id="restore-version-input", elem_classes=["hidden-offscreen"])
@@ -375,34 +369,28 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         if selected_tool == "Article Generation":
             # Generate article - yields to (center, left, right, filepath)
             for center, left, right, filepath in generate_initial_article(topic):
-                download_enabled = filepath is not None
-                yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
+                yield center, left, left, right, gr.DownloadButton(value=filepath, interactive=filepath is not None)
         elif selected_tool == "Multi-Agent Debate":
             # Run debate - yields (left=transcript, center=article, right=edit_log, filepath)
             for left, center, right, filepath in run_multi_agent_debate():
-                download_enabled = filepath is not None
-                yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
+                yield center, left, left, right, gr.DownloadButton(value=filepath, interactive=filepath is not None)
         elif selected_tool == "Self-Critique":
             # Run self-critique - yields (left=critique, center=article, right=edit_log, filepath)
             for left, center, right, filepath in run_self_critique():
-                download_enabled = filepath is not None
-                yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
+                yield center, left, left, right, gr.DownloadButton(value=filepath, interactive=filepath is not None)
         elif selected_tool == "User Feedback":
             # Process user feedback - yields (center, left, right, filepath)
             for center, left, right, filepath in run_user_feedback(user_feedback):
-                download_enabled = filepath is not None
-                yield center, left, left, right, filepath, gr.update(interactive=download_enabled)
+                yield center, left, left, right, gr.DownloadButton(value=filepath, interactive=filepath is not None)
         elif selected_tool == "Synthetic Data":
             # Generate synthetic training data - yields to (center, synthetic_log, right, filename)
             for center, synth_log, right, filename in run_synthetic_data_generation(topic, num_examples, quality_dist, flaw_type, article_length):
-                # Enable download button when filename is available
-                download_enabled = filename is not None
                 # Empty string for left_panel, actual log for synthetic_log
-                yield center, "", synth_log, right, filename, gr.update(interactive=download_enabled)
+                yield center, "", synth_log, right, gr.DownloadButton(value=filename, interactive=filename is not None)
         else:
             # Placeholder for other tools
             error_msg = f"⚠️ {selected_tool} not yet implemented."
-            yield "", error_msg, error_msg, "", None, gr.update(interactive=False)
+            yield "", error_msg, error_msg, "", gr.DownloadButton(value=None, interactive=False)
 
     # Update action button text and input state based on dropdown selection
     def update_ui_state(selected_tool, topic):
@@ -565,7 +553,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         inputs=[epistemic_dropdown, topic_input, left_panel,
                 num_examples_number, quality_dropdown, flaw_dropdown, length_dropdown],
         outputs=[article_display, left_panel, synthetic_log,
-                 right_panel, download_file_state, download_btn],
+                 right_panel, download_btn],
         show_progress="hidden"
     ).then(
         fn=update_version_history,
@@ -604,19 +592,6 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
                 preview.textContent = data.latest_content;
             }
         }"""
-    )
-
-    # Download button click handler
-    def trigger_download(filepath):
-        """Return the file path for download."""
-        if filepath and filepath.strip():
-            return filepath
-        return None
-
-    download_btn.click(
-        fn=trigger_download,
-        inputs=[download_file_state],
-        outputs=[download_file]
     )
 
     # Auto-set flaw type to "Auto" and disable when quality is "Excellent"
