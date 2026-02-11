@@ -322,7 +322,7 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
             "\n\nThis panel will show progress updates like:\n• Searching for sources\n• Generating article\n• Completion status\n\nEnter a topic and click Generate Article to begin!",
             lines=30,
             interactive=False,
-            show_copy_button=False,
+            # show_copy_button=False,
             show_label=False,
             container=True,
             elem_classes=["side-panel", "left-panel"],
