@@ -5,4 +5,3 @@ requests
 autocorrect
 wikipedia-api
 python-dotenv
-ray
