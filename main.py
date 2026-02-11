@@ -850,15 +850,7 @@ with gr.Blocks(theme=dark_theme, css=css, title="Veritas Epistemics - Truth-Seek
     )
 
 
-# demo.launch(server_name="0.0.0.0",  # <-- this is key
-#            # or int(os.getenv("PORT", 7860)) if you want Railway's var
-#            server_port=7860,
-#            share=False)
-
-css = """
-@media (max-width: 600px) { 
-    .gradio-container { font-size: 0.9em; padding: 10px; } 
-}
-"""
-
-demo.launch(css=css, server_name="0.0.0.0")
+demo.launch(server_name="0.0.0.0",  # <-- this is key
+            # or int(os.getenv("PORT", 7860)) if you want Railway's var
+            server_port=7860,
+            share=False)
