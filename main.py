@@ -201,8 +201,8 @@ with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Artic
         height=120,
         width=None,
         elem_id="veritas-title",
-        show_download_button=False,
-        show_fullscreen_button=False,
+        # show_download_button=False,
+        # show_fullscreen_button=False,
     )
 
     # CSS and JavaScript for UI styling
