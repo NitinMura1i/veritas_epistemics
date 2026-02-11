@@ -191,15 +191,7 @@ dark_theme = gr.themes.Default(
     body_text_size="md",
 )
 
-css = """
-.gradio-container {
-    max-width: 900px !important;
-    margin: 0 auto !important;
-    padding: 10px;
-}
-"""
-
-with gr.Blocks(theme=dark_theme, css=css, title="Veritas Epistemics - Truth-Seeking Article Generator", fill_height=False) as demo:
+with gr.Blocks(theme=dark_theme, title="Veritas Epistemics - Truth-Seeking Article Generator", fill_height=False) as demo:
     # Centered title image
     gr.Image(
         value="veritas_title.png",
