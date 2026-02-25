@@ -4,6 +4,8 @@ An epistemic refinement tool for AI-generated content, powered by Grok.
 
 Generate articles from topics or URLs, then refine them through multi-agent debate, self-critique, and validated user feedback to improve epistemic quality.
 
+<img width="1920" height="1080" alt="front" src="https://github.com/user-attachments/assets/7538e9ef-eacb-4fd6-a5c6-e2b0e657a778" />
+
 ## Features
 
 - **Article Generation** - Generate grounded articles from any topic or URL using Grok
